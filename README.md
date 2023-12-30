@@ -1,47 +1,53 @@
-# Astro Starter Kit: Minimal
+# Awesome Expense Tracker
 
-```sh
-npm create astro@latest -- --template minimal
-```
+## Project Overview
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/withastro/astro/tree/latest/examples/minimal)
-[![Open with CodeSandbox](https://assets.codesandbox.io/github/button-edit-lime.svg)](https://codesandbox.io/p/sandbox/github/withastro/astro/tree/latest/examples/minimal)
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/withastro/astro?devcontainer_path=.devcontainer/minimal/devcontainer.json)
+The Awesome Expense Tracker is a web application designed to make tracking personal finances easier. It provides a detailed overview of expenditure and helps users pinpoint areas for improvement.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Technology Stack
 
-## 🚀 Project Structure
+- **Frontend**: Astro.js
+- **Backend**: Golang
+- **Database**: MongoDB
 
-Inside of your Astro project, you'll see the following folders and files:
+## Architecture Overview
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
-```
+![Architecture Diagram](Architecture.png)
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+## Features
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+### User Authentication
 
-Any static assets, like images, can be placed in the `public/` directory.
+Users should be able to register, login, and logout of the application.
 
-## 🧞 Commands
+### Expense Tracking
 
-All commands are run from the root of the project, from a terminal:
+Users should be able to add, edit, and delete expenses. Each expense should have details like amount, date, category, and a brief description.
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+### Expense Categorization
 
-## 👀 Want to learn more?
+Expenses should be categorized (e.g., groceries, utilities, entertainment, etc.) to help users understand where their money is going.
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+### Budgeting
+
+Users should be able to set monthly budgets for different categories and track their spending against these budgets.
+
+### Reporting
+
+The application should provide detailed reports of expenditure. This could include monthly spending summaries, category-wise spending breakdowns, and trend analysis over time.
+
+### Dashboard
+
+A user-friendly dashboard that provides a quick overview of the user's financial status, including total expenses, budget status, and spending trends.
+
+## Development Plan
+
+1. **Set up the development environment**: Install Astro.js, Golang, MongoDB, and any other necessary dependencies.
+
+2. **Design the application architecture**: Plan out the structure of your frontend and backend, and how they will interact with each other and the database.
+
+3. **Develop the backend APIs**: Use Golang to create RESTful APIs for handling user authentication, managing expenses, and generating reports.
+
+4. **Set up the MongoDB database**: Design the database schema and set up the necessary collections for storing user and expense data.
+
+5. **Develop the frontend**: Use Astro.js to create the user interface. This includes the login/register pages, the dashboard, the expense tracking page, and the reports page.

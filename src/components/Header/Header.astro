@@ -1,0 +1,80 @@
+---
+
+---
+
+<nav>
+  <div class="brand">Awesome Expense Tracker</div>
+  <div class="nav-items">
+    <a href="/#home" class="nav-item">Home</a>
+    <div class="nav-line"></div>
+    <a href="/#test1" class="nav-item">Test1</a>
+  </div>
+  <a
+    href="https://www.linkedin.com/in/shashank-mahajan-7baa1979"
+    class="action-button"
+  >
+    Contact Us
+  </a>
+</nav>
+<style lang="scss">
+  nav {
+    display: flex;
+    gap: 15rem;
+    @media screen and (max-width: 1360px) {
+      gap: 4rem;
+      justify-content: space-between;
+    }
+    @media screen and (max-width: 600px) {
+      gap: 1rem;
+      padding: 10px 20px;
+    }
+    justify-content: center;
+    align-items: center;
+    height: 80px;
+    padding: 10px 80px;
+    border-bottom: 1px solid #000;
+    .brand {
+      font-family: "Damion", sans-serif;
+      font-size: 32px;
+      @media screen and (max-width: 600px) {
+        font-size: 24px;
+      }
+    }
+    .nav-items {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+      @media screen and (max-width: 1024px) {
+        display: none;
+      }
+      .nav-line {
+        outline-offset: 0px;
+        mix-blend-mode: darken;
+        border: 50px solid #000;
+        border-width: 0 50px 1px;
+        border-radius: 0;
+        outline: 2px #555;
+      }
+      .nav-item {
+        &:hover {
+          color: #9a7780;
+        }
+      }
+    }
+    .action-button {
+      border: 1px solid #111;
+      background-color: #faf9f6;
+      border-radius: 4px;
+      border-radius: 30px;
+      padding: 5px 20px;
+      font-size: 16px;
+      font-weight: 400;
+      cursor: pointer;
+      &:hover {
+        border: 1px solid var(--accent);
+        background-color: var(--accent);
+      }
+    }
+  }
+</style>

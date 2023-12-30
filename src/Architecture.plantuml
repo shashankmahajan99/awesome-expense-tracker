@@ -1,0 +1,44 @@
+@startuml Architecture Diagram
+title Awesome Expense Tracker Architecture
+
+package "Frontend (Astro.js)" {
+  [Login Page]
+  [Register Page]
+  [Dashboard Page]
+  [Expense Page]
+  [Reports Page]
+  [Profile Page]
+  [Settings Page]
+}
+
+cloud "Backend (Golang)" {
+  [User Authentication API]
+  [Expense Management API]
+  [Reports API]
+  [User Profile API]
+  [Settings API]
+}
+
+database "Database (MongoDB)" {
+  [Users Collection]
+  [Expenses Collection]
+  [Reports Collection]
+  [Profiles Collection]
+  [Settings Collection]
+}
+
+[Login Page] --> [User Authentication API]
+[Register Page] --> [User Authentication API]
+[Dashboard Page] --> [Expense Management API]
+[Expense Page] --> [Expense Management API]
+[Reports Page] --> [Reports API]
+[Profile Page] --> [User Profile API]
+[Settings Page] --> [Settings API]
+
+[User Authentication API] --> [Users Collection]
+[Expense Management API] --> [Expenses Collection]
+[Reports API] --> [Reports Collection]
+[User Profile API] --> [Profiles Collection]
+[Settings API] --> [Settings Collection]
+
+@enduml
