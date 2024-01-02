@@ -19,12 +19,12 @@ cloud "Backend (Golang)" {
   [Settings API]
 }
 
-database "Database (MongoDB)" {
-  [Users Collection]
-  [Expenses Collection]
-  [Reports Collection]
-  [Profiles Collection]
-  [Settings Collection]
+database "Database (SQLite)" {
+  [Users Table]
+  [Expenses Table]
+  [Reports Table]
+  [Profiles Table]
+  [Settings Table]
 }
 
 [Login Page] --> [User Authentication API]
@@ -35,10 +35,10 @@ database "Database (MongoDB)" {
 [Profile Page] --> [User Profile API]
 [Settings Page] --> [Settings API]
 
-[User Authentication API] --> [Users Collection]
-[Expense Management API] --> [Expenses Collection]
-[Reports API] --> [Reports Collection]
-[User Profile API] --> [Profiles Collection]
-[Settings API] --> [Settings Collection]
+[User Authentication API] --> [Users Table]
+[Expense Management API] --> [Expenses Table]
+[Reports API] --> [Reports Table]
+[User Profile API] --> [Profiles Table]
+[Settings API] --> [Settings Table]
 
 @enduml

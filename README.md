@@ -8,7 +8,7 @@ The Awesome Expense Tracker is a web application designed to make tracking perso
 
 - **Frontend**: Astro.js
 - **Backend**: Golang
-- **Database**: MongoDB
+- **Database**: SQLite
 
 ## Architecture Overview
 
@@ -42,12 +42,12 @@ A user-friendly dashboard that provides a quick overview of the user's financial
 
 ## Development Plan
 
-1. **Set up the development environment**: Install Astro.js, Golang, MongoDB, and any other necessary dependencies.
+1. **Set up the development environment**: Install Astro.js, Golang, SQLite, and any other necessary dependencies.
 
 2. **Design the application architecture**: Plan out the structure of your frontend and backend, and how they will interact with each other and the database.
 
 3. **Develop the backend APIs**: Use Golang to create RESTful APIs for handling user authentication, managing expenses, and generating reports.
 
-4. **Set up the MongoDB database**: Design the database schema and set up the necessary collections for storing user and expense data.
+4. **Set up the SQLite database**: Design the database schema and set up the necessary tables for storing user and expense data.
 
 5. **Develop the frontend**: Use Astro.js to create the user interface. This includes the login/register pages, the dashboard, the expense tracking page, and the reports page.
