@@ -19,7 +19,7 @@ cloud "Backend (Golang)" {
   [Settings API]
 }
 
-database "Database (SQLite)" {
+database "Database (MySQL)" {
   [Users Table]
   [Expenses Table]
   [Reports Table]
