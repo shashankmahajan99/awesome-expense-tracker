@@ -1,5 +1,4 @@
 import Foundation
-import AuthenticationServices
 import Security
 import SwiftData
 import UIKit
@@ -43,37 +42,55 @@ final class SyncManager: ObservableObject {
     private let tokenService = "com.shashankmahajan.paisa.sync"
     private let tokenAccount = "mobile-access-token"
     private let sitesTokenAccount = "sites-dispatch-token"
-    private var authenticationSession: ASWebAuthenticationSession?
+    private let pendingStateKey = "paisa.pending-sync-state"
+    private let pendingStateDateKey = "paisa.pending-sync-state-created-at"
 
     init() { connected = Self.readKeychain(service: tokenService, account: tokenAccount) != nil }
 
-    func beginPairing(context: ModelContext) async {
+    func beginPairing() async {
         guard !isWorking else { return }
-        isWorking = true; status = "Waiting for secure sign-in…"
+        isWorking = true; status = "Opening secure sign-in in Safari…"
+        defer { isWorking = false }
+        let state = UUID().uuidString
+        UserDefaults.standard.set(state, forKey: pendingStateKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: pendingStateDateKey)
+        var authorization = URLComponents(url: paisaAPIBaseURL.appending(path: "/api/mobile/authorize"), resolvingAgainstBaseURL: false)!
+        authorization.queryItems = [
+            URLQueryItem(name: "callback", value: "paisa://sync-auth"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "deviceName", value: UIDevice.current.name)
+        ]
+        let returnTo = authorization.url!.path + "?" + (authorization.percentEncodedQuery ?? "")
+        var signIn = URLComponents(url: paisaAPIBaseURL.appending(path: "/signin-with-chatgpt"), resolvingAgainstBaseURL: false)!
+        signIn.queryItems = [URLQueryItem(name: "return_to", value: returnTo)]
+        guard await UIApplication.shared.open(signIn.url!) else {
+            UserDefaults.standard.removeObject(forKey: pendingStateKey)
+            UserDefaults.standard.removeObject(forKey: pendingStateDateKey)
+            status = "Safari could not open the secure sign-in page"
+            return
+        }
+        status = "Complete sign-in in Safari"
+    }
+
+    func completePairing(callback: URL, context: ModelContext) async {
+        guard !isWorking else { return }
+        isWorking = true; status = "Finishing secure connection…"
         defer { isWorking = false }
         do {
-            let state = UUID().uuidString
-            var authorization = URLComponents(url: paisaAPIBaseURL.appending(path: "/api/mobile/authorize"), resolvingAgainstBaseURL: false)!
-            authorization.queryItems = [
-                URLQueryItem(name: "callback", value: "paisa://sync-auth"),
-                URLQueryItem(name: "state", value: state),
-                URLQueryItem(name: "deviceName", value: UIDevice.current.name)
-            ]
-            var signIn = URLComponents(url: paisaAPIBaseURL.appending(path: "/signin-with-chatgpt"), resolvingAgainstBaseURL: false)!
-            signIn.queryItems = [URLQueryItem(name: "return_to", value: authorization.url!.relativeString)]
-            let callback = try await authenticate(at: signIn.url!)
-            guard let components = URLComponents(url: callback, resolvingAgainstBaseURL: false),
-                  components.queryItems?.first(where: { $0.name == "state" })?.value == state,
+            guard let expectedState = UserDefaults.standard.string(forKey: pendingStateKey),
+                  Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: pendingStateDateKey) < 600,
+                  let components = URLComponents(url: callback, resolvingAgainstBaseURL: false),
+                  components.queryItems?.first(where: { $0.name == "state" })?.value == expectedState,
                   let accessToken = components.queryItems?.first(where: { $0.name == "access_token" })?.value,
                   let sitesToken = components.queryItems?.first(where: { $0.name == "sites_token" })?.value else {
-                throw SyncFailure.message("The secure sign-in response was invalid")
+                throw SyncFailure.message("The secure sign-in response was invalid or expired")
             }
+            UserDefaults.standard.removeObject(forKey: pendingStateKey)
+            UserDefaults.standard.removeObject(forKey: pendingStateDateKey)
             try Self.saveKeychain(accessToken, service: tokenService, account: tokenAccount)
             try Self.saveKeychain(sitesToken, service: tokenService, account: sitesTokenAccount)
             connected = true; status = "Connected — syncing…"
             try await sync(context: context)
-        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
-            status = "Connection cancelled"
         } catch { status = error.localizedDescription }
     }
 
@@ -142,25 +159,6 @@ final class SyncManager: ObservableObject {
         return try JSONDecoder().decode(Response.self, from: data)
     }
 
-    private func authenticate(at url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "paisa") { [weak self] callback, error in
-                self?.authenticationSession = nil
-                if let error { continuation.resume(throwing: error) }
-                else if let callback { continuation.resume(returning: callback) }
-                else { continuation.resume(throwing: SyncFailure.message("Secure sign-in did not return to Paisa")) }
-            }
-            session.prefersEphemeralWebBrowserSession = false
-            session.presentationContextProvider = WebAuthenticationPresenter.shared
-            authenticationSession = session
-            guard session.start() else {
-                authenticationSession = nil
-                continuation.resume(throwing: SyncFailure.message("Secure sign-in could not be opened"))
-                return
-            }
-        }
-    }
-
     private static let formatter: ISO8601DateFormatter = { let value = ISO8601DateFormatter(); value.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return value }()
     private static let fallbackFormatter = ISO8601DateFormatter()
     private static func format(_ date: Date) -> String { formatter.string(from: date) }
@@ -179,13 +177,6 @@ final class SyncManager: ObservableObject {
 
     private static func deleteKeychain(service: String, account: String) {
         SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account] as CFDictionary)
-    }
-}
-
-private final class WebAuthenticationPresenter: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = WebAuthenticationPresenter()
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
     }
 }
 

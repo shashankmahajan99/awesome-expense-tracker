@@ -50,7 +50,7 @@ struct SettingsView: View {
                     Button("Sync now") { Task { await sync.syncIfConnected(context: context) } }.disabled(sync.isWorking)
                     Button("Disconnect this iPhone", role: .destructive) { Task { await sync.disconnect() } }.disabled(sync.isWorking)
                 } else {
-                    Button("Connect with ChatGPT") { Task { await sync.beginPairing(context: context) } }.disabled(sync.isWorking)
+                    Button("Connect with ChatGPT") { Task { await sync.beginPairing() } }.disabled(sync.isWorking)
                 }
                 if sync.isWorking { ProgressView() }
             }
