@@ -39,7 +39,7 @@ function render() {
     const status = document.createElement("span"); const pill = document.createElement("i"); pill.className = `status-tag ${item.reviewStatus}`; pill.textContent = statusLabel(item.reviewStatus); status.append(pill);
     const amount = document.createElement("strong"); amount.className = "ledger-amount"; amount.textContent = formatter.format(item.amount);
     const actions = document.createElement("span"); actions.className = "row-actions";
-    if (item.reviewStatus === "unresolved" || item.reviewStatus === "deferred") { const review = document.createElement("a"); review.href = `/?review=${encodeURIComponent(item.id)}`; review.textContent = "Review"; actions.append(review); }
+    if (item.reviewStatus === "unresolved") { const review = document.createElement("a"); review.href = `/?review=${encodeURIComponent(item.id)}`; review.textContent = "Review"; actions.append(review); }
     const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(item)); actions.append(edit);
     row.append(merchant, category, status, amount, actions); root.append(row);
   }
