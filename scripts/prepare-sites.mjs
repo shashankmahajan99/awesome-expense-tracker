@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
 const dist = new URL("../dist/", import.meta.url);
@@ -12,13 +12,7 @@ for (const entry of await readdir(dist, { withFileTypes: true })) {
 }
 
 await mkdir(server, { recursive: true });
-await writeFile(
-  new URL("index.js", server),
-  `export default {
-  async fetch(request, env) {
-    if (env?.ASSETS) return env.ASSETS.fetch(request);
-    return new Response("Static asset binding unavailable", { status: 500 });
-  },
-};
-`,
-);
+await Promise.all([
+  copyFile(new URL("../src/worker.js", import.meta.url), new URL("index.js", server)),
+  copyFile(new URL("../src/domain.mjs", import.meta.url), new URL("domain.mjs", server)),
+]);

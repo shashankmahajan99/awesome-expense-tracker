@@ -43,7 +43,7 @@ const transactions = [
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Open menu">☰</button>
           <div><p class="date">SUNDAY, 2 AUGUST</p><h1>Good evening, Shashank.</h1></div>
-          <div class="top-actions"><button class="icon-button" type="button" aria-label="Notifications">♢<span></span></button><button class="primary-button" type="button" data-open-review><span>✦</span> Review today</button></div>
+          <div class="top-actions"><button class="import-button" type="button" data-open-import>＋ Import</button><button class="icon-button" type="button" aria-label="Notifications">♢<span></span></button><button class="primary-button" type="button" data-open-review><span>✦</span> Review today</button></div>
         </header>
 
         <section class="hero" id="overview">
@@ -97,7 +97,7 @@ const transactions = [
           <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="#activity">View details →</a></div><div class="category-list">{categories.map((category) => <div class="category"><div><span class="dot" style={`background:${category.color}`}></span><strong>{category.name}</strong><b>{category.amount}</b></div><div class="track"><i style={`width:${category.percent}%;background:${category.color}`}></i></div></div>)}</div></article>
           <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3>Your Gurgaon trip cost ₹3,180.</h3><p>Fuel, tolls, and food made it your largest out-of-routine expense this week.</p><button type="button" data-open-review>Review trip expenses →</button></article>
         </section>
-        <footer><span>Paisa understands your spending, without making you log every little thing.</span><span>Last synced just now · 42 transactions</span></footer>
+        <footer><span>Paisa understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
       </main>
     </div>
 
@@ -145,6 +145,7 @@ const transactions = [
         </div>
         <label class="toggle-row"><span><strong>Sunday cleanup</strong><small>Show a weekly catch-up only when missing context affects your insights.</small></span><input name="weeklyCleanup" type="checkbox" checked /><i></i></label>
         <div class="preference-note"><span>♢</span><p><strong>Anti-annoyance rules are always on.</strong><small>No repeated evening alerts, known EMIs, reversals, refunds, or reminders after you’ve already reviewed.</small></p></div>
+        <div class="data-controls"><div><strong>Your data</strong><small>Download a portable copy or permanently delete your Paisa records.</small></div><span><button type="button" id="export-data">Export</button><button type="button" id="delete-account">Delete account</button></span></div>
         <div class="sheet-actions"><button class="secondary-button" type="button" data-close-preferences>Cancel</button><button class="primary-button" type="submit">Save preferences</button></div>
       </form>
     </dialog>
@@ -156,53 +157,17 @@ const transactions = [
       <button class="primary-button" type="button" data-close-completion>Back to overview</button>
     </dialog>
 
+    <dialog class="sheet-dialog import-dialog" id="import-dialog">
+      <div class="sheet-top"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa.</h2></div><button type="button" data-close-import aria-label="Close import">×</button></div>
+      <p class="sheet-intro">Upload a CSV export from your bank or wallet. Paisa deduplicates repeated rows and stores amounts as precise paise values.</p>
+      <label class="file-drop" id="file-drop"><input id="csv-file" type="file" accept=".csv,text/csv" /><span>⇧</span><strong>Choose a CSV file</strong><small>Columns: date, merchant or description, amount, category</small></label>
+      <div class="import-preview" id="import-preview" hidden><div><strong id="import-count">0 transactions ready</strong><small id="import-filename"></small></div><button type="button" id="clear-import">Remove</button></div>
+      <div class="preference-note"><span>♢</span><p><strong>Your data remains private to your account.</strong><small>The import is validated, deduplicated, and never exposed to another Paisa user.</small></p></div>
+      <div class="sheet-actions"><button class="secondary-button" type="button" data-close-import>Cancel</button><button class="primary-button" type="button" id="import-submit" disabled>Import securely</button></div>
+    </dialog>
+
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
-    <script define:vars={{ transactions }}>
-      const dialog = document.querySelector('#review-dialog'); const batchDialog = document.querySelector('#batch-dialog'); const preferencesDialog = document.querySelector('#preferences-dialog'); const completionDialog = document.querySelector('#completion-dialog'); const toast = document.querySelector('.toast'); const items = [...transactions]; let current = 0; let reviewedCount = 0; const $ = (selector) => document.querySelector(selector);
-      const showToast = (title, detail) => { toast.querySelector('strong').textContent = title; toast.querySelector('small').textContent = detail; toast.classList.add('visible'); setTimeout(() => toast.classList.remove('visible'), 2400); };
-      const renderReview = () => {
-        if (!items.length) { dialog?.close(); batchDialog?.close(); document.querySelector('.empty-inbox')?.removeAttribute('hidden'); $('#transaction-list').innerHTML = ''; $('#inbox-count').textContent = '0'; $('#completed-count').textContent = String(reviewedCount); completionDialog?.showModal(); return; }
-        current = Math.min(current, items.length - 1); const item = items[current]; $('#review-position').textContent = String(current + 1); $('#review-total').textContent = String(items.length); $('#review-progress').style.width = `${((current + 1) / items.length) * 100}%`; $('#review-icon').textContent = item.icon; $('#review-icon').className = `merchant-icon ${item.tone} large`; $('#review-meta').textContent = item.meta.toUpperCase(); $('#review-amount').textContent = item.amount; $('#review-merchant').textContent = item.merchant; $('#review-question').textContent = item.merchant === 'Indian Oil' ? 'Was this fuel for your Kushaq?' : 'What was this payment for?'; $('#review-hint').textContent = item.detail; $('#answer-input').value = '';
-      };
-      const openReview = (id) => { if (id) current = Math.max(0,items.findIndex((item) => item.id === id)); renderReview(); dialog?.showModal(); };
-      const resolveCurrent = (message='Context saved') => { const resolved = items[current]; items.splice(current,1); reviewedCount++; document.querySelector(`[data-id="${resolved.id}"]`)?.remove(); document.querySelector(`[data-batch-id="${resolved.id}"]`)?.remove(); $('#inbox-count').textContent = String(items.length); showToast(message,items.length?'Moving to the next payment':'Today’s review is complete'); renderReview(); };
-      const bindTransactionButton = (button) => button.addEventListener('click',() => openReview(Number(button.dataset.id)));
-      document.querySelectorAll('[data-open-review]').forEach((button) => button.addEventListener('click',() => openReview())); document.querySelectorAll('[data-id]').forEach(bindTransactionButton); document.querySelector('[data-close-review]')?.addEventListener('click',() => dialog.close()); $('#submit-answer')?.addEventListener('click',() => $('#answer-input').value.trim() && resolveCurrent()); $('#answer-input')?.addEventListener('keydown',(event) => { if(event.key === 'Enter' && event.currentTarget.value.trim()) resolveCurrent(); });
-      document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click',() => { if(button.dataset.action === 'skip'){ current=(current+1)%items.length; renderReview(); showToast('Saved for later','We won’t ask again tonight'); } else if(button.dataset.action === 'group'){ const merchant=items[current]?.merchant||''; dialog.close(); $('#batch-input').value=`${merchant} was part of `; batchDialog.showModal(); $('#batch-input').focus(); } else resolveCurrent('Marked as known'); }));
-      $('#voice-button')?.addEventListener('click',() => { const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SpeechRecognition){ $('#answer-input').focus(); showToast('Voice isn’t available here','You can type a quick answer instead'); return; } const recognition=new SpeechRecognition(); recognition.lang='en-IN'; recognition.onstart=() => $('#voice-button').classList.add('listening'); recognition.onresult=(event) => { $('#answer-input').value=event.results[0][0].transcript; }; recognition.onend=() => $('#voice-button').classList.remove('listening'); recognition.start(); });
-      document.addEventListener('keydown',(event) => { if(dialog?.open && event.key.toLowerCase()==='s' && document.activeElement!==$('#answer-input')){ event.preventDefault(); current=(current+1)%items.length; renderReview(); } }); document.querySelector('.menu-button')?.addEventListener('click',() => document.querySelector('.sidebar')?.classList.toggle('open'));
-
-      const merchantAliases = { 'Amazon':['amazon'], 'Zomato':['zomato','dinner','lunch'], 'Indian Oil':['indian oil','petrol','fuel'], 'Delhi Gurgaon Toll':['toll','gurgaon trip'], 'Blinkit':['blinkit','groceries','grocery'] };
-      const syncBatchChips = () => $('#batch-list').replaceChildren(...items.map((item) => { const chip=document.createElement('span'); chip.dataset.batchId=String(item.id); const dot=document.createElement('i'); dot.className=`mini-dot ${item.tone}`; chip.append(dot,`${item.merchant} · ${item.amount}`); return chip; }));
-      const openBatch = () => { $('#batch-result').hidden=true; $('#batch-input').value=''; document.querySelectorAll('[data-batch-id]').forEach((chip) => chip.classList.remove('matched')); batchDialog.showModal(); };
-      document.querySelectorAll('[data-open-batch]').forEach((button) => button.addEventListener('click',openBatch)); document.querySelectorAll('[data-close-batch]').forEach((button) => button.addEventListener('click',() => batchDialog.close()));
-      $('#batch-input')?.addEventListener('input',(event) => { const text=event.currentTarget.value.toLowerCase(); items.forEach((item) => { const matched=(merchantAliases[item.merchant]||[item.merchant.toLowerCase()]).some((alias) => text.includes(alias)); document.querySelector(`[data-batch-id="${item.id}"]`)?.classList.toggle('matched',matched); }); });
-      $('#batch-submit')?.addEventListener('click',() => { const text=$('#batch-input').value.trim().toLowerCase(); if(!text){ $('#batch-input').focus(); return; } const matched=items.filter((item) => (merchantAliases[item.merchant]||[item.merchant.toLowerCase()]).some((alias) => text.includes(alias))); $('#batch-result').hidden=false; if(!matched.length){ $('#batch-result-text').textContent='No merchant names matched yet. Try mentioning petrol, toll, Blinkit, Zomato, or Amazon.'; return; } matched.forEach((item) => { const index=items.findIndex((candidate) => candidate.id===item.id); if(index>=0) items.splice(index,1); document.querySelector(`[data-id="${item.id}"]`)?.remove(); document.querySelector(`[data-batch-id="${item.id}"]`)?.remove(); }); reviewedCount+=matched.length; $('#inbox-count').textContent=String(items.length); $('#batch-result-text').textContent=`Matched ${matched.map((item) => item.merchant).join(', ')}${items.length?`. ${items.length} payment${items.length===1?'':'s'} still need context.`:'. Everything important is understood.'}`; if(!items.length) setTimeout(renderReview,850); else showToast(`${matched.length} payments explained`,'Related spending was grouped automatically'); });
-      $('#batch-voice')?.addEventListener('click',() => { const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SpeechRecognition){ $('#batch-input').focus(); showToast('Voice isn’t available here','You can type one sentence instead'); return; } const recognition=new SpeechRecognition(); recognition.lang='en-IN'; recognition.onresult=(event) => { $('#batch-input').value=event.results[0][0].transcript; $('#batch-input').dispatchEvent(new Event('input')); }; recognition.start(); });
-
-      const form=$('#preferences-form'); const savedPreferences=JSON.parse(localStorage.getItem('paisa_preferences')||'null');
-      const applyPreferences=(preferences) => { const [hour,minute]=preferences.reviewTime.split(':').map(Number); $('#next-review-time').textContent=new Date(2026,0,1,hour,minute).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}); $('#reminder-mode').textContent=preferences.personality; };
-      const populatePreferences=(preferences) => { if(!preferences) return; form.elements.personality.value=preferences.personality; form.elements.reviewTime.value=preferences.reviewTime; form.elements.importantAmount.value=preferences.importantAmount; form.elements.quietStart.value=preferences.quietStart; form.elements.quietEnd.value=preferences.quietEnd; form.elements.weeklyCleanup.checked=preferences.weeklyCleanup; };
-      if(savedPreferences){ populatePreferences(savedPreferences); applyPreferences(savedPreferences); }
-      document.querySelectorAll('[data-open-preferences]').forEach((button) => button.addEventListener('click',() => { populatePreferences(JSON.parse(localStorage.getItem('paisa_preferences')||'null')); preferencesDialog.showModal(); document.querySelector('.sidebar')?.classList.remove('open'); })); document.querySelectorAll('[data-close-preferences]').forEach((button) => button.addEventListener('click',() => preferencesDialog.close()));
-      form?.addEventListener('submit',(event) => { event.preventDefault(); const data=new FormData(form); const preferences={personality:data.get('personality'),reviewTime:data.get('reviewTime'),importantAmount:data.get('importantAmount'),quietStart:data.get('quietStart'),quietEnd:data.get('quietEnd'),weeklyCleanup:data.get('weeklyCleanup')==='on'}; localStorage.setItem('paisa_preferences',JSON.stringify(preferences)); applyPreferences(preferences); preferencesDialog.close(); showToast('Preferences saved',`${preferences.personality} reminders at ${$('#next-review-time').textContent}`); });
-      document.querySelectorAll('[data-close-completion]').forEach((button) => button.addEventListener('click',() => completionDialog.close()));
-      const apiBase=import.meta.env.PUBLIC_API_URL;
-      if(apiBase) fetch(`${apiBase}/v1/expense`,{headers:{Authorization:`Bearer ${localStorage.getItem('paisa_token')||''}`}}).then(async(response) => {
-        if(!response.ok) return;
-        const payload=await response.json();
-        if(!payload.expenses?.length) return;
-        const formatter=new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0});
-        const liveItems=payload.expenses.slice(0,7).map((expense,index) => ({id:Number(expense.id)||index+100,merchant:expense.paidTo||expense.description||'Unknown payment',meta:new Date(expense.date||Date.now()).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}),amount:formatter.format(expense.amount),icon:(expense.paidTo||expense.description||'?').slice(0,2).toUpperCase(),tone:['amber','red','blue','green','yellow'][index%5],status:'Needs context',detail:expense.category?`Likely ${expense.category}`:'Category uncertain'}));
-        items.splice(0,items.length,...liveItems); reviewedCount=0; syncBatchChips(); $('#inbox-count').textContent=String(items.length); $('#transaction-list').replaceChildren(...liveItems.map((item) => {
-          const button=document.createElement('button'); button.className='transaction'; button.type='button'; button.dataset.id=String(item.id);
-          const icon=document.createElement('span'); icon.className=`merchant-icon ${item.tone}`; icon.textContent=item.icon;
-          const info=document.createElement('span'); info.className='merchant-info'; const name=document.createElement('strong'); name.textContent=item.merchant; const meta=document.createElement('small'); meta.textContent=item.meta; info.append(name,meta);
-          const context=document.createElement('span'); context.className='transaction-context'; const status=document.createElement('span'); status.textContent=item.status; const detail=document.createElement('small'); detail.textContent=item.detail; context.append(status,detail);
-          const amount=document.createElement('strong'); amount.className='amount'; amount.textContent=item.amount; const chevron=document.createElement('span'); chevron.className='chevron'; chevron.textContent='›'; button.append(icon,info,context,amount,chevron); bindTransactionButton(button); return button;
-        }));
-      }).catch(()=>{});
-    </script>
+    <script is:inline src="/client.js"></script>
   </body>
 </html>
