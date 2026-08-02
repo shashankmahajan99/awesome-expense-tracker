@@ -31,7 +31,8 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
-        .tint(Color(red: 0.12, green: 0.31, blue: 0.27))
+        .tint(PaisaTheme.forest)
+        .preferredColorScheme(.light)
         .task { await sync.syncIfConnected(context: context) }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await sync.syncIfConnected(context: context) } } }
         .onOpenURL { url in

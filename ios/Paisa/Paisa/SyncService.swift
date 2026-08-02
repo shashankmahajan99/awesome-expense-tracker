@@ -146,7 +146,10 @@ final class SyncManager: ObservableObject {
             guard let deletedAt = Self.parse(tombstone.deletedAt), let item = byID[tombstone.id.lowercased()], deletedAt >= item.updatedAt else { continue }
             item.isDeleted = true; item.updatedAt = deletedAt
         }
-        try context.save(); lastSynced = Date(); status = "Synced just now"
+        try context.save()
+        lastSynced = Date()
+        let visibleCount = response.transactions.count
+        status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions") just now"
     }
 
     private func request<Response: Decodable, Body: Encodable>(_ path: String, method: String, body: Body?, authenticated: Bool) async throws -> Response {

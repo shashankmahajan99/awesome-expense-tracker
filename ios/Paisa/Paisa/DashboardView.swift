@@ -6,41 +6,150 @@ struct DashboardView: View {
     @State private var showReview = false
     @State private var showImport = false
 
-    private var unresolved: [PaisaTransaction] { transactions.filter { $0.reviewStatus == "unresolved" || $0.reviewStatus == "deferred" } }
-    private var total: Double { transactions.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) }.reduce(0) { $0 + $1.amount } }
+    // Deferred payments are intentionally understood for today, matching the
+    // web inbox. They return only when the server schedules a later review.
+    private var unresolved: [PaisaTransaction] { transactions.filter { $0.reviewStatus == "unresolved" } }
+    private var today: [PaisaTransaction] { transactions.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) } }
+    private var total: Double { transactions.reduce(0) { $0 + $1.amount } }
+    private var todayTotal: Double { today.reduce(0) { $0 + $1.amount } }
+    private var largest: PaisaTransaction? { transactions.max { $0.amount < $1.amount } }
+    private var understood: Int { transactions.isEmpty ? 100 : Int(Double(transactions.count - unresolved.count) / Double(transactions.count) * 100) }
     private var unresolvedLabel: String { unresolved.count == 1 ? "1 payment" : "\(unresolved.count) payments" }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text("DAILY FINANCIAL INBOX").font(.caption2.bold()).foregroundStyle(.secondary)
-                Text(unresolved.isEmpty ? "Everything makes sense." : "A few things need your attention.").font(.largeTitle.bold())
-                Text("You spent \(PaisaFormat.amount(total)) today. \(unresolvedLabel) still need context.").foregroundStyle(.secondary)
-                Button { showReview = true } label: { Label("Review \(unresolvedLabel)", systemImage: "sparkles").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(unresolved.isEmpty)
-                HStack {
-                    SummaryCard(title: "Today", value: PaisaFormat.amount(total), icon: "indianrupeesign.circle")
-                    SummaryCard(title: "Understood", value: transactions.isEmpty ? "100%" : "\(Int(Double(transactions.count - unresolved.count) / Double(transactions.count) * 100))%", icon: "checkmark.circle")
-                }
-                Text("Needs your input").font(.title2.bold())
-                ForEach(unresolved.prefix(6)) { item in
-                    Button { showReview = true } label: { TransactionRow(item: item) }.buttonStyle(.plain)
-                }
-            }.padding()
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                hero
+                metrics
+                inbox
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 30)
         }
+        .background(PaisaTheme.canvas.ignoresSafeArea())
+        .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle("Paisa")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showImport = true } label: { Label("Import", systemImage: "square.and.arrow.down") } } }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Text("P").font(.headline.bold()).foregroundStyle(PaisaTheme.forest)
+                    .frame(width: 32, height: 32).background(PaisaTheme.gold, in: Circle())
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showImport = true } label: { Label("Import", systemImage: "plus") }
+                    .fontWeight(.semibold)
+            }
+        }
         .sheet(isPresented: $showReview) { NavigationStack { ReviewView(transactions: unresolved) } }
         .sheet(isPresented: $showImport) { StatementImportView() }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            PaisaEyebrow(text: "Your daily financial inbox")
+            Text(unresolved.isEmpty ? "Everything makes sense." : "A few things need your attention.")
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
+                .foregroundStyle(PaisaTheme.ink)
+            Text(unresolved.isEmpty ? "Your inbox is clear. Add or import transactions whenever you’re ready." : "\(unresolvedLabel.capitalized) still need context.")
+                .font(.subheadline).foregroundStyle(PaisaTheme.muted)
+        }
+        .padding(.top, 8)
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                PaisaEyebrow(text: "Total tracked").foregroundStyle(.white.opacity(0.66))
+                Spacer()
+                Text("\(transactions.count) payments").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.72))
+            }
+            Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
+            HStack(spacing: 10) {
+                heroChip("\(understood)%", "Understood", PaisaTheme.gold)
+                heroChip(largest.map { PaisaFormat.amount($0.amount) } ?? "₹0", "Largest", PaisaTheme.peach)
+            }
+            Button { showReview = true } label: {
+                HStack { Image(systemName: unresolved.isEmpty ? "checkmark" : "sparkles"); Text(unresolved.isEmpty ? "Inbox clear" : "Review today"); Spacer(); if !unresolved.isEmpty { Image(systemName: "arrow.right") } }
+                    .fontWeight(.bold).padding(.horizontal, 16).frame(height: 50)
+                    .background(unresolved.isEmpty ? Color.white.opacity(0.13) : PaisaTheme.gold, in: RoundedRectangle(cornerRadius: 14))
+                    .foregroundStyle(unresolved.isEmpty ? .white : PaisaTheme.forest)
+            }
+            .disabled(unresolved.isEmpty)
+        }
+        .padding(20)
+        .background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private func heroChip(_ value: String, _ label: String, _ accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.headline.bold()).foregroundStyle(.white)
+            Text(label.uppercased()).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.white.opacity(0.62))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(13)
+        .background(accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 15))
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(accent.opacity(0.45)))
+    }
+
+    private var metrics: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            metric("Today", PaisaFormat.amount(todayTotal), "arrow.up.right")
+            metric("Understood", "\(understood)%", "checkmark.circle")
+            metric("Largest", largest.map { PaisaFormat.amount($0.amount) } ?? "₹0", "diamond")
+            metric("Needs context", PaisaFormat.amount(unresolved.reduce(0) { $0 + $1.amount }), "clock")
+        }
+    }
+
+    private func metric(_ label: String, _ value: String, _ icon: String) -> some View {
+        PaisaCard {
+            Image(systemName: icon).foregroundStyle(PaisaTheme.forest).padding(8).background(PaisaTheme.forest.opacity(0.08), in: Circle())
+            Text(label.uppercased()).font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(PaisaTheme.muted).padding(.top, 8)
+            Text(value).font(.title3.bold()).foregroundStyle(PaisaTheme.ink).padding(.top, 1)
+        }
+    }
+
+    private var inbox: some View {
+        PaisaCard {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) { PaisaEyebrow(text: "Needs your input"); Text("Daily inbox").font(.title3.bold()).foregroundStyle(PaisaTheme.ink) }
+                Spacer()
+                if !unresolved.isEmpty { Button("Review all") { showReview = true }.font(.subheadline.bold()) }
+            }
+            if unresolved.isEmpty {
+                HStack(spacing: 12) {
+                    Image(systemName: "checkmark").font(.headline.bold()).foregroundStyle(PaisaTheme.forest).frame(width: 42, height: 42).background(PaisaTheme.forest.opacity(0.1), in: Circle())
+                    VStack(alignment: .leading, spacing: 3) { Text("All clear for today.").fontWeight(.bold); Text("You’ve explained everything that matters.").font(.caption).foregroundStyle(PaisaTheme.muted) }
+                }.padding(.top, 18)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(unresolved.prefix(6).enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { Divider() }
+                        Button { showReview = true } label: { TransactionRow(item: item) }.buttonStyle(.plain)
+                    }
+                }.padding(.top, 8)
+            }
+        }
     }
 }
 
 struct SummaryCard: View {
     let title: String; let value: String; let icon: String
-    var body: some View { VStack(alignment: .leading, spacing: 10) { Image(systemName: icon).foregroundStyle(.green); Text(value).font(.title2.bold()); Text(title).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
+    var body: some View { PaisaCard { Image(systemName: icon).foregroundStyle(PaisaTheme.forest); Text(value).font(.title2.bold()).foregroundStyle(PaisaTheme.ink); Text(title.uppercased()).font(.caption2.bold()).tracking(1).foregroundStyle(PaisaTheme.muted) } }
 }
 
 struct TransactionRow: View {
     let item: PaisaTransaction
-    var body: some View { HStack { Text(String(item.merchant.prefix(2)).uppercased()).font(.caption.bold()).frame(width: 42, height: 42).background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 12)); VStack(alignment: .leading) { Text(item.merchant).font(.body.bold()); Text(item.occurredAt, format: .dateTime.day().month().hour().minute()).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(PaisaFormat.amount(item.amount)).fontWeight(.semibold) }.padding(.vertical, 4) }
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(String(item.merchant.prefix(2)).uppercased()).font(.caption.bold()).foregroundStyle(PaisaTheme.forest)
+                .frame(width: 42, height: 42).background(PaisaTheme.forest.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.merchant).font(.body.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
+                Text("\(item.category) · \(item.occurredAt.formatted(.dateTime.day().month()))").font(.caption).foregroundStyle(PaisaTheme.muted)
+            }
+            Spacer()
+            Text(PaisaFormat.amount(item.amount)).fontWeight(.bold).foregroundStyle(PaisaTheme.ink)
+        }.padding(.vertical, 10)
+    }
 }
