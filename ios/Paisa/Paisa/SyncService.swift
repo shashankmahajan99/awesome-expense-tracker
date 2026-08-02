@@ -45,7 +45,19 @@ final class SyncManager: ObservableObject {
     private let pendingStateKey = "paisa.pending-sync-state"
     private let pendingStateDateKey = "paisa.pending-sync-state-created-at"
 
-    init() { connected = Self.readKeychain(service: tokenService, account: tokenAccount) != nil }
+    init() {
+        let hasAccessToken = Self.readKeychain(service: tokenService, account: tokenAccount) != nil
+        let hasSitesToken = Self.readKeychain(service: tokenService, account: sitesTokenAccount) != nil
+        connected = hasAccessToken && hasSitesToken
+        status = connected ? "Connected — ready to sync" : "Stored only on this iPhone"
+
+        // A partial credential pair can never sync. Clear it so Settings always
+        // reflects a recoverable state instead of claiming that the app is connected.
+        if hasAccessToken != hasSitesToken {
+            Self.deleteKeychain(service: tokenService, account: tokenAccount)
+            Self.deleteKeychain(service: tokenService, account: sitesTokenAccount)
+        }
+    }
 
     func beginPairing() async {
         guard !isWorking else { return }
@@ -85,10 +97,10 @@ final class SyncManager: ObservableObject {
                   let sitesToken = components.queryItems?.first(where: { $0.name == "sites_token" })?.value else {
                 throw SyncFailure.message("The secure sign-in response was invalid or expired")
             }
-            UserDefaults.standard.removeObject(forKey: pendingStateKey)
-            UserDefaults.standard.removeObject(forKey: pendingStateDateKey)
             try Self.saveKeychain(accessToken, service: tokenService, account: tokenAccount)
             try Self.saveKeychain(sitesToken, service: tokenService, account: sitesTokenAccount)
+            UserDefaults.standard.removeObject(forKey: pendingStateKey)
+            UserDefaults.standard.removeObject(forKey: pendingStateDateKey)
             connected = true; status = "Connected — syncing…"
             try await sync(context: context)
         } catch { status = error.localizedDescription }
@@ -148,8 +160,15 @@ final class SyncManager: ObservableObject {
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            let message = (try? JSONDecoder().decode(APIError.self, from: data).error) ?? "Paisa could not sync right now"
-            if (response as? HTTPURLResponse)?.statusCode == 401 {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            let apiMessage = try? JSONDecoder().decode(APIError.self, from: data).error
+            let message: String
+            if statusCode == 401, apiMessage == nil {
+                message = "Secure site access expired. Connect with ChatGPT again."
+            } else {
+                message = apiMessage ?? "Paisa could not sync right now"
+            }
+            if statusCode == 401 {
                 connected = false
                 Self.deleteKeychain(service: tokenService, account: tokenAccount)
                 Self.deleteKeychain(service: tokenService, account: sitesTokenAccount)
