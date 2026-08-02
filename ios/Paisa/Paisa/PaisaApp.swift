@@ -33,8 +33,8 @@ struct RootView: View {
         }
         .tint(PaisaTheme.forest)
         .preferredColorScheme(.light)
-        .task { await sync.syncIfConnected(context: context) }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await sync.syncIfConnected(context: context) } } }
+        .task { await importSharesAndSync() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await importSharesAndSync() } } }
         .onOpenURL { url in
             guard url.scheme == "paisa" else { return }
             if url.host == "settings" { selectedTab = .settings }
@@ -43,5 +43,11 @@ struct RootView: View {
                 Task { await sync.completePairing(callback: url, context: context) }
             }
         }
+    }
+
+    @MainActor
+    private func importSharesAndSync() async {
+        sync.importSharedReceipts(context: context)
+        await sync.syncIfConnected(context: context)
     }
 }

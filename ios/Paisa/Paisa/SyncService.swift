@@ -112,6 +112,39 @@ final class SyncManager: ObservableObject {
         do { try await sync(context: context) } catch { status = error.localizedDescription }
     }
 
+    func importSharedReceipts(context: ModelContext) {
+        do {
+            let receipts = try SharedInbox.pending()
+            guard !receipts.isEmpty else { return }
+            let existing = try context.fetch(FetchDescriptor<PaisaTransaction>())
+            let existingIDs = Set(existing.map(\.id))
+            var importedIDs: [UUID] = []
+
+            for receipt in receipts {
+                if !existingIDs.contains(receipt.id) {
+                    context.insert(PaisaTransaction(
+                        id: receipt.id,
+                        merchant: receipt.merchant,
+                        amount: receipt.amount,
+                        occurredAt: receipt.occurredAt,
+                        category: receipt.category,
+                        note: receipt.note,
+                        reviewStatus: "unresolved",
+                        source: "ios_share",
+                        updatedAt: receipt.createdAt
+                    ))
+                }
+                importedIDs.append(receipt.id)
+            }
+            try context.save()
+            for id in importedIDs { try SharedInbox.remove(id: id) }
+            let count = receipts.count
+            status = "Added \(count) shared \(count == 1 ? "payment" : "payments") to your inbox"
+        } catch {
+            status = "A shared payment could not be imported: \(error.localizedDescription)"
+        }
+    }
+
     func disconnect() async {
         guard connected else { return }
         isWorking = true; defer { isWorking = false }
