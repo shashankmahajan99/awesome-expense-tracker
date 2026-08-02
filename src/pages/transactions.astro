@@ -19,10 +19,10 @@ import AppTopbar from "../components/AppTopbar.astro";
               <select id="status-filter" aria-label="Filter by review status"><option value="all">All statuses</option><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select>
               <select id="category-filter" aria-label="Filter by category"><option value="all">All categories</option></select>
             </div>
-            <div class="ledger-summary"><strong id="ledger-count">Loading transactions…</strong><span id="ledger-total"></span></div>
+            <div class="ledger-summary"><strong id="ledger-count"><span class="skeleton-line medium"></span></strong><span id="ledger-total"><span class="skeleton-line short"></span></span></div>
             <div class="ledger-table" role="table" aria-label="Transactions">
               <div class="ledger-row ledger-head" role="row"><span>Payment</span><span>Category</span><span>Status</span><span>Amount</span><span>Actions</span></div>
-              <div id="ledger-rows" class="ledger-rows"><div class="page-loader"><i></i>Loading your transactions…</div></div>
+              <div id="ledger-rows" class="ledger-rows" aria-busy="true">{[1,2,3,4,5].map(() => <div class="ledger-row ledger-skeleton" aria-hidden="true"><span class="ledger-merchant"><i class="skeleton-avatar"></i><span><b class="skeleton-line medium"></b><b class="skeleton-line short"></b></span></span><span class="skeleton-line medium"></span><span class="skeleton-line short"></span><span class="skeleton-line short"></span><span class="skeleton-line medium"></span></div>)}</div>
             </div>
             <div class="ledger-empty" id="ledger-empty" hidden><span>⌕</span><h3>No transactions found.</h3><p>Try another filter or add a transaction manually.</p><button class="primary-button" type="button" data-add-transaction>Add transaction</button></div>
           </section>

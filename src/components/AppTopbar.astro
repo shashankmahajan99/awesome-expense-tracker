@@ -8,7 +8,7 @@ const { title, subtitle = "YOUR MONEY, CLEARLY", action = "none" } = Astro.props
   <div class="top-actions">
     <a class="import-button" href="/?import=1">＋ Import</a>
     {action === "add" && <button class="primary-button" type="button" data-add-transaction><span>＋</span> Add transaction</button>}
-    {action === "review" && <button class="primary-button" type="button" data-open-review><span>✦</span> Review today</button>}
+    {action === "review" && <button class="primary-button loading-control" type="button" data-open-review disabled><span>✦</span> Review today</button>}
     {action === "none" && <a class="primary-button" href="/"><span>←</span> Dashboard</a>}
   </div>
 </header>

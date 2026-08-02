@@ -2,21 +2,6 @@
 import BaseHead from "../components/BaseHead.astro";
 import AppSidebar from "../components/AppSidebar.astro";
 import AppTopbar from "../components/AppTopbar.astro";
-
-const categories = [
-  { name: "Food & dining", amount: "₹8,240", percent: 72, color: "#e6825b" },
-  { name: "Travel", amount: "₹6,180", percent: 54, color: "#5f8f87" },
-  { name: "Shopping", amount: "₹4,760", percent: 41, color: "#dbad4d" },
-  { name: "Bills", amount: "₹3,420", percent: 29, color: "#7685a8" },
-];
-
-const transactions = [
-  { id: 1, merchant: "Amazon", meta: "Today · 5:42 PM", amount: "₹8,400", icon: "A", tone: "amber", status: "Needs context", detail: "Unusually large for this merchant" },
-  { id: 2, merchant: "Zomato", meta: "Today · 1:18 PM", amount: "₹740", icon: "Z", tone: "red", status: "Needs context", detail: "Dining · possibly shared" },
-  { id: 3, merchant: "Indian Oil", meta: "Today · 9:06 AM", amount: "₹2,100", icon: "IO", tone: "blue", status: "Likely travel", detail: "Fuel · confidence 82%" },
-  { id: 4, merchant: "Delhi Gurgaon Toll", meta: "Today · 8:44 AM", amount: "₹120", icon: "T", tone: "green", status: "Likely travel", detail: "Matches your Gurgaon route" },
-  { id: 5, merchant: "Blinkit", meta: "Yesterday · 8:12 PM", amount: "₹960", icon: "B", tone: "yellow", status: "Needs context", detail: "Likely groceries" },
-];
 ---
 
 <!doctype html>
@@ -34,53 +19,44 @@ const transactions = [
         <section class="hero" id="overview">
           <div class="hero-copy">
             <div class="status-pill"><i></i> YOUR DAILY FINANCIAL INBOX</div>
-            <h2>A few things need<br />your attention.</h2>
-            <p id="hero-summary">Loading your latest transactions and unresolved payments…</p>
-            <div class="hero-actions"><button class="review-button" type="button" data-open-review><strong data-review-label>Review payments</strong> <span>→</span></button><span><strong id="review-estimate">~1 min</strong><small>Estimated review time</small></span></div>
+            <h2 id="hero-title"><span class="skeleton-line hero-heading"></span><span class="skeleton-line hero-heading medium"></span></h2>
+            <p id="hero-summary"><span class="skeleton-line wide"></span><span class="skeleton-line medium"></span></p>
+            <div class="hero-actions"><button class="review-button loading-control" type="button" data-open-review disabled><strong data-review-label><span class="skeleton-line button-line"></span></strong></button><span><strong id="review-estimate"><span class="skeleton-line short"></span></strong><small>Estimated review time</small></span></div>
           </div>
           <div class="hero-visual" aria-label="Spending breakdown">
             <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
-            <div class="sun"><span>₹6,420</span><small>SPENT TODAY</small></div>
-            <div class="bubble routine"><strong>₹2,800</strong><small>ROUTINE</small></div>
-            <div class="bubble travel"><strong>₹2,100</strong><small>TRAVEL</small></div>
-            <div class="bubble unknown"><strong>₹1,520</strong><small>UNEXPLAINED</small></div>
+            <div class="sun"><span id="visual-total"><i class="skeleton-disc"></i></span><small>TOTAL TRACKED</small></div>
+            <div class="bubble routine"><strong id="visual-understood"><i class="skeleton-disc small"></i></strong><small>UNDERSTOOD</small></div>
+            <div class="bubble travel"><strong id="visual-largest"><i class="skeleton-disc small"></i></strong><small>LARGEST</small></div>
+            <div class="bubble unknown"><strong id="visual-unresolved"><i class="skeleton-disc small"></i></strong><small>UNEXPLAINED</small></div>
           </div>
         </section>
 
         <section class="metrics" aria-label="Financial summary">
-          <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">TOTAL TRACKED</span></div><strong id="tracked-total">—</strong><p id="tracked-count">Loading payments…</p></article>
-          <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong id="understood-percent">—</strong><p id="understood-detail">Review completeness</p></article>
-          <article><div><span class="metric-icon blue">◇</span><span class="eyebrow">MONEY TO COLLECT</span></div><strong>₹2,350</strong><p>Rahul and 2 others owe you</p></article>
-          <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong id="next-review-time">9:30 PM</strong><p><span id="reminder-mode">Balanced</span> reminder · today</p></article>
+          <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">TOTAL TRACKED</span></div><strong id="tracked-total"><span class="skeleton-line metric-line"></span></strong><p id="tracked-count"><span class="skeleton-line medium"></span></p></article>
+          <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong id="understood-percent"><span class="skeleton-line metric-line"></span></strong><p id="understood-detail"><span class="skeleton-line medium"></span></p></article>
+          <article><div><span class="metric-icon blue">◇</span><span class="eyebrow">LARGEST PAYMENT</span></div><strong id="largest-payment"><span class="skeleton-line metric-line"></span></strong><p id="largest-detail"><span class="skeleton-line medium"></span></p></article>
+          <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong id="next-review-time"><span class="skeleton-line metric-line"></span></strong><p><span id="reminder-mode"><span class="skeleton-line short"></span></span><span id="reminder-suffix"></span></p></article>
         </section>
 
         <section class="content-grid" id="inbox">
           <article class="panel inbox-panel">
-            <div class="panel-heading"><div><span class="eyebrow">NEEDS YOUR INPUT</span><h3>Daily inbox</h3></div><div class="panel-actions"><button type="button" data-open-batch>Explain together</button><button type="button" data-open-review>Review all <span>→</span></button></div></div>
-            <div class="transaction-list" id="transaction-list">
-              {transactions.map((transaction) => (
-                <button class="transaction" type="button" data-id={transaction.id}>
-                  <span class={`merchant-icon ${transaction.tone}`}>{transaction.icon}</span>
-                  <span class="merchant-info"><strong>{transaction.merchant}</strong><small>{transaction.meta}</small></span>
-                  <span class="transaction-context"><span>{transaction.status}</span><small>{transaction.detail}</small></span>
-                  <strong class="amount">{transaction.amount}</strong><span class="chevron">›</span>
-                </button>
-              ))}
-            </div>
+            <div class="panel-heading"><div><span class="eyebrow">NEEDS YOUR INPUT</span><h3>Daily inbox</h3></div><div class="panel-actions"><button type="button" data-open-batch disabled>Explain together</button><button type="button" data-open-review disabled>Review all <span>→</span></button></div></div>
+            <div class="transaction-list" id="transaction-list" aria-busy="true">{[1,2,3,4].map(() => <div class="transaction skeleton-row" aria-hidden="true"><span class="skeleton-avatar"></span><span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></span><span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></span><i class="skeleton-line amount-line"></i></div>)}</div>
             <div class="empty-inbox" hidden><span>✓</span><h4>All clear for today.</h4><p>You’ve explained everything that matters.</p></div>
           </article>
 
           <article class="panel snapshot" id="insights">
-            <div class="panel-heading"><div><span class="eyebrow">AUGUST SO FAR</span><h3>Spending snapshot</h3></div><a href="/insights">Full insights →</a></div>
-            <div class="month-total"><strong>₹42,680</strong><span><i>↓ 8%</i> vs July</span></div>
-            <div class="bars" aria-label="Spending over the last seven days">{[34,51,42,68,55,86,64].map((height,index) => <div><i style={`height:${height}%`} class={index === 5 ? "peak" : ""}></i><small>{["M","T","W","T","F","S","S"][index]}</small></div>)}</div>
-            <div class="insight-note"><span>✦</span><p><strong>You're spending less.</strong><br />Dining is down ₹1,820 from this time last month.</p></div>
+            <div class="panel-heading"><div><span class="eyebrow">RECENT ACTIVITY</span><h3>Spending snapshot</h3></div><a href="/insights">Full insights →</a></div>
+            <div class="month-total"><strong id="snapshot-total"><span class="skeleton-line metric-line"></span></strong><span id="snapshot-caption"><span class="skeleton-line short"></span></span></div>
+            <div class="bars skeleton-bars" id="snapshot-bars" aria-label="Recent spending" aria-busy="true">{[30,52,42,69,55,82,64].map((height) => <div><i style={`height:${height}%`}></i><small class="skeleton-line tiny"></small></div>)}</div>
+            <div class="insight-note" id="snapshot-note"><span>✦</span><p><span class="skeleton-line wide"></span><span class="skeleton-line medium"></span></p></div>
           </article>
         </section>
 
         <section class="lower-grid" id="activity">
-          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list">{categories.map((category) => <div class="category"><div><span class="dot" style={`background:${category.color}`}></span><strong>{category.name}</strong><b>{category.amount}</b></div><div class="track"><i style={`width:${category.percent}%;background:${category.color}`}></i></div></div>)}</div></article>
-          <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3>Your Gurgaon trip cost ₹3,180.</h3><p>Fuel, tolls, and food made it your largest out-of-routine expense this week.</p><button type="button" data-open-review>Review trip expenses →</button></article>
+          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list" id="dashboard-categories" aria-busy="true">{[1,2,3,4].map(() => <div class="category skeleton-category"><div><span class="skeleton-dot"></span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></div><div class="track"><i></i></div></div>)}</div></article>
+          <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3 id="focus-title"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></h3><p id="focus-detail"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></p><a href="/insights">Explore insights →</a></article>
         </section>
         <footer><span>Paisa understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
       </main>
@@ -106,9 +82,7 @@ const transactions = [
       <p class="sheet-intro">Mention merchants naturally. Paisa will locate the matching payments, group related spending, and leave only unmatched items for later.</p>
       <div class="batch-example"><span>✦</span><p>“The petrol and toll were from today’s Gurgaon trip. Blinkit was groceries.”</p></div>
       <label class="batch-field listening-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea><i class="field-loader" aria-label="Listening" hidden></i></label>
-      <div class="batch-list" id="batch-list" aria-label="Payments available to match">
-        {transactions.map((item) => <span data-batch-id={item.id}><i class={`mini-dot ${item.tone}`}></i>{item.merchant} · {item.amount}</span>)}
-      </div>
+      <div class="batch-list" id="batch-list" aria-label="Payments available to match"></div>
       <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice" data-voice-label>● Speak instead</button><button class="primary-button" type="button" id="batch-submit">Match & explain <span>→</span></button></div>
       <div class="batch-result" id="batch-result" hidden><span>✓</span><p><strong>Explanation applied</strong><small id="batch-result-text"></small></p></div>
     </dialog>

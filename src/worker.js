@@ -188,17 +188,19 @@ async function deleteTransaction(db, user, id) {
 }
 
 async function getInsights(db, user) {
-  const [categories, days, status, totals] = await Promise.all([
+  const [categories, days, status, totals, largest] = await Promise.all([
     db.prepare("SELECT COALESCE(category,'Uncategorised') AS category,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY category ORDER BY amount DESC LIMIT 8").bind(user.id).all(),
     db.prepare("SELECT substr(occurred_at,1,10) AS day,SUM(amount_paise) AS amount FROM transactions WHERE user_id=? GROUP BY day ORDER BY day DESC LIMIT 14").bind(user.id).all(),
     db.prepare("SELECT review_status AS status,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY review_status").bind(user.id).all(),
     db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(AVG(amount_paise),0) AS average FROM transactions WHERE user_id=?").bind(user.id).first(),
+    db.prepare("SELECT merchant,amount_paise,category FROM transactions WHERE user_id=? ORDER BY amount_paise DESC LIMIT 1").bind(user.id).first(),
   ]);
   return json({
     categories: categories.results.map((row) => ({ name: row.category, amountPaise: Number(row.amount), count: Number(row.count) })),
     days: days.results.reverse().map((row) => ({ day: row.day, amountPaise: Number(row.amount) })),
     statuses: status.results.map((row) => ({ status: row.status, count: Number(row.count) })),
     totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0), averagePaise: Number(totals?.average || 0) },
+    largest: largest ? { merchant: largest.merchant, amountPaise: Number(largest.amount_paise), category: largest.category } : null,
   });
 }
 

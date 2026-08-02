@@ -58,6 +58,7 @@ function transactionButton(item) {
 
 function syncQueue() {
   $("#transaction-list").replaceChildren(...items.map(transactionButton));
+  $("#transaction-list").setAttribute("aria-busy", "false");
   $$('[data-inbox-count]').forEach((node) => node.textContent = String(items.length));
   $("#batch-list").replaceChildren(...items.map((item) => {
     const chip = document.createElement("span"); chip.dataset.batchId = item.id;
@@ -131,6 +132,41 @@ function applyPreferences(value) {
   const [hour, minute] = value.reviewTime.split(":").map(Number);
   $("#next-review-time").textContent = new Date(2026, 0, 1, hour, minute).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
   $("#reminder-mode").textContent = value.personality;
+  $("#reminder-suffix").textContent = " reminder · today";
+}
+
+function renderDashboardInsights(insights) {
+  const colors = ["#e6825b", "#5f8f87", "#dbad4d", "#7685a8"];
+  const largest = insights.largest;
+  $("#largest-payment").textContent = largest ? formatter.format(largest.amountPaise / 100) : "—";
+  $("#largest-detail").textContent = largest ? largest.merchant : "No payments yet";
+  $("#visual-largest").textContent = largest ? formatter.format(largest.amountPaise / 100) : "—";
+  $("#snapshot-total").textContent = formatter.format(insights.totals.amountPaise / 100);
+  $("#snapshot-caption").textContent = `${insights.totals.count} payments tracked`;
+
+  const days = insights.days.slice(-7); const maxDay = Math.max(1, ...days.map((item) => item.amountPaise));
+  const barRoot = $("#snapshot-bars"); barRoot.replaceChildren(); barRoot.classList.remove("skeleton-bars"); barRoot.setAttribute("aria-busy", "false");
+  for (const item of days) {
+    const column = document.createElement("div"); const bar = document.createElement("i"); bar.style.height = `${Math.max(6, item.amountPaise / maxDay * 100)}%`;
+    const label = document.createElement("small"); label.textContent = new Date(`${item.day}T12:00:00`).toLocaleDateString("en-IN", { weekday: "narrow" }); column.append(bar, label); barRoot.append(column);
+  }
+  if (!days.length) { const empty = document.createElement("p"); empty.className = "chart-empty"; empty.textContent = "Import transactions to build your spending pattern."; barRoot.append(empty); }
+
+  const categoryRoot = $("#dashboard-categories"); categoryRoot.replaceChildren(); categoryRoot.setAttribute("aria-busy", "false");
+  const categories = insights.categories.slice(0, 4); const maxCategory = Math.max(1, ...categories.map((item) => item.amountPaise));
+  categories.forEach((item, index) => {
+    const row = document.createElement("div"); row.className = "category"; const top = document.createElement("div");
+    const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = colors[index % colors.length];
+    const name = document.createElement("strong"); name.textContent = item.name; const amount = document.createElement("b"); amount.textContent = formatter.format(item.amountPaise / 100); top.append(dot, name, amount);
+    const track = document.createElement("div"); track.className = "track"; const fill = document.createElement("i"); fill.style.width = `${item.amountPaise / maxCategory * 100}%`; fill.style.background = colors[index % colors.length]; track.append(fill); row.append(top, track); categoryRoot.append(row);
+  });
+  if (!categories.length) { const empty = document.createElement("p"); empty.className = "category-empty"; empty.textContent = "Categories will appear after your first import."; categoryRoot.append(empty); }
+  const topCategory = categories[0];
+  $("#snapshot-note").replaceChildren(); const sparkle = document.createElement("span"); sparkle.textContent = "✦"; const note = document.createElement("p");
+  const noteTitle = document.createElement("strong"); noteTitle.textContent = topCategory ? `${topCategory.name} is your largest category.` : "Your insights are ready when you are.";
+  const noteDetail = document.createElement("small"); noteDetail.textContent = topCategory ? `${formatter.format(topCategory.amountPaise / 100)} across ${topCategory.count} payment${topCategory.count === 1 ? "" : "s"}.` : "Import a bank statement or add a payment."; note.append(noteTitle, document.createElement("br"), noteDetail); $("#snapshot-note").append(sparkle, note);
+  $("#focus-title").textContent = topCategory ? `${topCategory.name} accounts for ${formatter.format(topCategory.amountPaise / 100)}.` : "Add transactions to see what changed.";
+  $("#focus-detail").textContent = topCategory ? `${topCategory.count} payment${topCategory.count === 1 ? "" : "s"} make it your largest tracked category.` : "Paisa will turn your imported statement into a clear daily inbox.";
 }
 
 function populatePreferences(value) {
@@ -205,18 +241,26 @@ async function parsePDF(file, password = "") {
 
 async function loadDashboard() {
   try {
-    const data = await api("/api/bootstrap");
+    const [data, insights] = await Promise.all([api("/api/bootstrap"), api("/api/insights")]);
     items = data.transactions.map(mapTransaction); reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
     const firstName = (data.user.name || "there").split(" ")[0]; $(".topbar h1").textContent = `Good evening, ${firstName}.`;
     $("[data-profile-name]").textContent = data.user.name || firstName; $("[data-profile-email]").textContent = data.user.email || "Private account";
     const understood = data.totals.count ? Math.round(((data.totals.count - data.summary.count) / data.totals.count) * 100) : 100;
+    $("#hero-title").textContent = data.summary.count ? "A few things need your attention." : "Everything makes sense.";
     $("#hero-summary").textContent = data.summary.count ? `${data.summary.count} payment${data.summary.count === 1 ? "" : "s"} worth ${formatter.format(data.summary.amountPaise / 100)} need a little context. Everything else is out of your way.` : "Your inbox is clear. Add or import transactions whenever you’re ready.";
     $$('[data-review-label]').forEach((node) => node.textContent = data.summary.count ? `Review ${data.summary.count} payment${data.summary.count === 1 ? "" : "s"}` : "Inbox clear");
-    $$('[data-open-review]').forEach((button) => button.disabled = !data.summary.count);
+    $$('[data-open-review]').forEach((button) => { button.disabled = !data.summary.count; button.classList.remove("loading-control"); });
+    $$('[data-open-batch]').forEach((button) => button.disabled = !data.summary.count);
     $("#review-estimate").textContent = data.summary.count ? `~${Math.max(1, Math.ceil(data.summary.count * .3))} min` : "Done";
     $("#tracked-total").textContent = formatter.format(data.totals.amountPaise / 100); $("#tracked-count").textContent = `${data.totals.count} payments tracked`;
     $("#understood-percent").textContent = `${understood}%`; $("#understood-detail").textContent = data.summary.count ? `${data.summary.count} still need context` : "Everything is understood";
-  } catch (error) { showToast("Preview mode", "Persistent services are starting; sample data remains available"); }
+    $("#visual-total").textContent = formatter.format(data.totals.amountPaise / 100); $("#visual-understood").textContent = `${understood}%`; $("#visual-unresolved").textContent = formatter.format(data.summary.amountPaise / 100);
+    renderDashboardInsights(insights);
+  } catch (error) {
+    $("#hero-summary").textContent = "We couldn’t load your dashboard just now. Your data is safe; refresh to try again.";
+    $("#transaction-list").setAttribute("aria-busy", "false");
+    showToast("Dashboard unavailable", "Please refresh in a moment");
+  }
 }
 
 $$('[data-open-review]').forEach((button) => button.addEventListener("click", () => openReview()));

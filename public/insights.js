@@ -13,21 +13,25 @@ async function load() {
     $("#insight-understood").textContent = `${understood}%`; $("#insight-unresolved").textContent = unresolved ? `${unresolved} still need context` : "Everything is understood";
     document.querySelectorAll("[data-inbox-count]").forEach((node) => node.textContent = bootstrap.summary.count); $("[data-profile-name]").textContent = bootstrap.user.name || "My account"; $("[data-profile-email]").textContent = bootstrap.user.email || "Private account";
 
-    const maxDay = Math.max(1, ...data.days.map((item) => item.amountPaise)); const bars = $("#daily-bars"); bars.replaceChildren();
+    const maxDay = Math.max(1, ...data.days.map((item) => item.amountPaise)); const bars = $("#daily-bars"); bars.replaceChildren(); bars.classList.remove("insight-skeleton-bars"); bars.setAttribute("aria-busy", "false");
     if (!data.days.length) bars.textContent = "Import transactions to see your spending rhythm.";
     for (const item of data.days) {
       const column = document.createElement("div"); const amount = document.createElement("small"); amount.textContent = formatter.format(item.amountPaise / 100);
       const bar = document.createElement("i"); bar.style.height = `${Math.max(5, (item.amountPaise / maxDay) * 100)}%`;
       const day = document.createElement("span"); day.textContent = new Date(`${item.day}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); column.append(amount, bar, day); bars.append(column);
     }
-    const categoryRoot = $("#insight-categories"); categoryRoot.replaceChildren(); const maxCategory = Math.max(1, ...data.categories.map((item) => item.amountPaise));
+    const categoryRoot = $("#insight-categories"); categoryRoot.replaceChildren(); categoryRoot.setAttribute("aria-busy", "false"); const maxCategory = Math.max(1, ...data.categories.map((item) => item.amountPaise));
     data.categories.forEach((item, index) => {
       const row = document.createElement("div"); row.className = "insight-category"; const top = document.createElement("div");
       const name = document.createElement("strong"); name.textContent = item.name; const value = document.createElement("span"); value.textContent = `${formatter.format(item.amountPaise / 100)} · ${item.count}`; top.append(name, value);
       const track = document.createElement("div"); const fill = document.createElement("i"); fill.style.width = `${(item.amountPaise / maxCategory) * 100}%`; fill.style.background = colors[index % colors.length]; track.append(fill); row.append(top, track); categoryRoot.append(row);
     });
-    const health = $("#review-health"); health.replaceChildren();
+    const health = $("#review-health"); health.replaceChildren(); health.setAttribute("aria-busy", "false");
     data.statuses.forEach((item) => { const row = document.createElement("div"); const label = document.createElement("span"); label.textContent = item.status.replaceAll("_", " "); const count = document.createElement("strong"); count.textContent = item.count; row.append(label, count); health.append(row); });
-  } catch (error) { const toast = $(".toast"); toast.querySelector("small").textContent = error.message; toast.classList.add("visible"); }
+  } catch (error) {
+    ["#daily-bars", "#insight-categories", "#review-health"].forEach((selector) => { const root = $(selector); root.replaceChildren(); root.setAttribute("aria-busy", "false"); });
+    $("#daily-bars").textContent = "Insights are temporarily unavailable.";
+    const toast = $(".toast"); toast.querySelector("small").textContent = error.message; toast.classList.add("visible");
+  }
 }
 $("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open")); load();

@@ -6,7 +6,7 @@ const { active = "overview" } = Astro.props;
   <a class="brand" href="/" aria-label="Paisa dashboard"><span class="brand-mark">P</span><span>Paisa</span></a>
   <nav>
     <a class:list={["nav-link", { active: active === "overview" }]} href="/"><span>⌂</span>Dashboard</a>
-    <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count>•</b></a>
+    <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>
     <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><span>↕</span>Transactions</a>
     <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><span>⌁</span>Insights</a>
     <a class="nav-link" href="/?preferences=1"><span>⚙</span>Preferences</a>

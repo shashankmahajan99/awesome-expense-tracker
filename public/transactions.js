@@ -28,6 +28,7 @@ function filtered() {
 
 function render() {
   const visible = filtered(); const root = $("#ledger-rows"); root.replaceChildren();
+  root.setAttribute("aria-busy", "false");
   for (const item of visible) {
     const row = document.createElement("div"); row.className = "ledger-row"; row.setAttribute("role", "row");
     const merchant = document.createElement("span"); merchant.className = "ledger-merchant";
@@ -72,7 +73,11 @@ async function load() {
     render();
     const bootstrap = await api("/api/bootstrap"); document.querySelectorAll("[data-inbox-count]").forEach((node) => node.textContent = bootstrap.summary.count);
     $("[data-profile-name]").textContent = bootstrap.user.name || "My account"; $("[data-profile-email]").textContent = bootstrap.user.email || "Private account";
-  } catch (error) { toast("Couldn’t load transactions", error.message); }
+  } catch (error) {
+    $("#ledger-rows").replaceChildren(); $("#ledger-rows").setAttribute("aria-busy", "false");
+    $("#ledger-count").textContent = "Transactions unavailable"; $("#ledger-total").textContent = "";
+    toast("Couldn’t load transactions", error.message);
+  }
 }
 
 [$("#transaction-search"), $("#status-filter"), $("#category-filter")].forEach((input) => input.addEventListener("input", render));
