@@ -1,0 +1,18 @@
+---
+interface Props { active?: "overview" | "inbox" | "transactions" | "insights"; }
+const { active = "overview" } = Astro.props;
+---
+<aside class="sidebar" aria-label="Primary navigation">
+  <a class="brand" href="/" aria-label="Paisa dashboard"><span class="brand-mark">P</span><span>Paisa</span></a>
+  <nav>
+    <a class:list={["nav-link", { active: active === "overview" }]} href="/"><span>⌂</span>Dashboard</a>
+    <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count>•</b></a>
+    <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><span>↕</span>Transactions</a>
+    <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><span>⌁</span>Insights</a>
+    <a class="nav-link" href="/?preferences=1"><span>⚙</span>Preferences</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>Build your streak</strong><p>A short daily review keeps insights accurate.</p><div class="streak-days" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
+    <a class="profile" href="/?preferences=1" aria-label="Open account preferences"><span>SM</span><span><strong data-profile-name>My account</strong><small data-profile-email>Private account</small></span><b>›</b></a>
+  </div>
+</aside>

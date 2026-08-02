@@ -1,0 +1,33 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
+---
+<!doctype html>
+<html lang="en">
+  <head><BaseHead title="Insights — Paisa" description="Understand spending patterns from your reviewed transactions." /></head>
+  <body>
+    <div class="app-shell">
+      <AppSidebar active="insights" />
+      <main>
+        <AppTopbar title="Insights" subtitle="PATTERNS, NOT SPREADSHEETS" action="none" />
+        <section class="workspace-page">
+          <div class="page-intro"><div><span class="eyebrow">YOUR FINANCIAL PICTURE</span><h2>See what changed and why.</h2><p>Insights use your real transaction data. Add context during review to make every pattern more useful.</p></div><a class="secondary-button" href="/transactions">Manage transactions →</a></div>
+          <section class="insight-metrics">
+            <article class="panel"><span class="eyebrow">TOTAL TRACKED</span><strong id="insight-total">—</strong><small id="insight-count">Loading…</small></article>
+            <article class="panel"><span class="eyebrow">AVERAGE PAYMENT</span><strong id="insight-average">—</strong><small>Across all imported payments</small></article>
+            <article class="panel"><span class="eyebrow">UNDERSTOOD</span><strong id="insight-understood">—</strong><small id="insight-unresolved">Review completeness</small></article>
+          </section>
+          <section class="insight-grid">
+            <article class="panel insight-chart"><div class="panel-heading"><div><span class="eyebrow">LAST 14 ACTIVE DAYS</span><h3>Spending rhythm</h3></div></div><div class="large-bars" id="daily-bars"><div class="page-loader"><i></i>Building your chart…</div></div></article>
+            <article class="panel"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Categories</h3></div></div><div class="insight-categories" id="insight-categories"></div></article>
+            <article class="panel review-health"><div class="panel-heading"><div><span class="eyebrow">DATA QUALITY</span><h3>Review health</h3></div></div><div id="review-health"></div><a class="review-button" href="/#inbox">Review unresolved payments <span>→</span></a></article>
+          </section>
+        </section>
+        <footer><span>Better context produces better insights.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
+      </main>
+    </div>
+    <div class="toast" role="status" aria-live="polite"><span>!</span><p><strong>Couldn’t load insights</strong><small>Please try again</small></p></div>
+    <script is:inline src="/insights.js"></script>
+  </body>
+</html>

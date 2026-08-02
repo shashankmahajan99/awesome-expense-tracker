@@ -1,0 +1,55 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
+---
+<!doctype html>
+<html lang="en">
+  <head><BaseHead title="Transactions — Paisa" description="Search, edit, categorise, and manage all your transactions." /></head>
+  <body>
+    <div class="app-shell">
+      <AppSidebar active="transactions" />
+      <main>
+        <AppTopbar title="Transactions" subtitle="SEARCH, FIX, AND ORGANISE" action="add" />
+        <section class="workspace-page">
+          <div class="page-intro"><div><span class="eyebrow">YOUR COMPLETE LEDGER</span><h2>Every payment, under your control.</h2><p>Search, edit, categorise, review, or remove a transaction. Changes update your dashboard and insights immediately.</p></div><a class="secondary-button" href="/">← Back to dashboard</a></div>
+          <section class="panel ledger-panel">
+            <div class="ledger-toolbar">
+              <label class="search-field"><span>⌕</span><input id="transaction-search" type="search" placeholder="Search merchant, note, or context" /></label>
+              <select id="status-filter" aria-label="Filter by review status"><option value="all">All statuses</option><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select>
+              <select id="category-filter" aria-label="Filter by category"><option value="all">All categories</option></select>
+            </div>
+            <div class="ledger-summary"><strong id="ledger-count">Loading transactions…</strong><span id="ledger-total"></span></div>
+            <div class="ledger-table" role="table" aria-label="Transactions">
+              <div class="ledger-row ledger-head" role="row"><span>Payment</span><span>Category</span><span>Status</span><span>Amount</span><span>Actions</span></div>
+              <div id="ledger-rows" class="ledger-rows"><div class="page-loader"><i></i>Loading your transactions…</div></div>
+            </div>
+            <div class="ledger-empty" id="ledger-empty" hidden><span>⌕</span><h3>No transactions found.</h3><p>Try another filter or add a transaction manually.</p><button class="primary-button" type="button" data-add-transaction>Add transaction</button></div>
+          </section>
+        </section>
+        <footer><span>Paisa gives you a clean ledger without turning money into admin.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
+      </main>
+    </div>
+
+    <dialog class="sheet-dialog transaction-editor" id="transaction-dialog">
+      <div class="sheet-top"><div><span class="eyebrow" id="editor-eyebrow">NEW TRANSACTION</span><h2 id="editor-title">Add a payment.</h2></div><button type="button" data-close-dialog aria-label="Close transaction editor">×</button></div>
+      <form id="transaction-form">
+        <input type="hidden" name="id" />
+        <div class="editor-grid">
+          <label><span>Merchant</span><input name="merchant" required maxlength="160" placeholder="e.g. Swiggy" /></label>
+          <label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" /></label>
+          <label><span>Date and time</span><input name="occurredAt" required type="datetime-local" /></label>
+          <label><span>Category</span><input name="category" list="categories" placeholder="Uncategorised" /></label>
+          <label><span>Review status</span><select name="reviewStatus"><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select></label>
+          <label class="wide"><span>Description</span><input name="description" maxlength="300" placeholder="Optional bank narration" /></label>
+          <label class="wide"><span>Context or note</span><textarea name="context" rows="3" maxlength="1000" placeholder="What was this payment for?"></textarea></label>
+        </div>
+        <datalist id="categories"><option value="Food & dining"></option><option value="Groceries"></option><option value="Travel"></option><option value="Shopping"></option><option value="Bills"></option><option value="Health"></option><option value="Entertainment"></option></datalist>
+        <p class="form-error" id="form-error" hidden></p>
+        <div class="sheet-actions editor-actions"><button class="danger-button" id="delete-transaction" type="button" hidden>Delete transaction</button><span></span><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button class="primary-button" type="submit" id="save-transaction">Save transaction</button></div>
+      </form>
+    </dialog>
+    <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Saved</strong><small>Your ledger is up to date</small></p></div>
+    <script is:inline src="/transactions.js"></script>
+  </body>
+</html>

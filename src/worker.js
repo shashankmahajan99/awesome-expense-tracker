@@ -11,14 +11,6 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, metadata TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 ];
 
-const demoTransactions = [
-  ["Amazon", 840000, "Shopping", "2026-08-02T17:42:00+05:30", 9.7],
-  ["Zomato", 74000, "Food & dining", "2026-08-02T13:18:00+05:30", 4.3],
-  ["Indian Oil", 210000, "Travel", "2026-08-02T09:06:00+05:30", 5.8],
-  ["Delhi Gurgaon Toll", 12000, "Travel", "2026-08-02T08:44:00+05:30", 2.2],
-  ["Blinkit", 96000, "Groceries", "2026-08-01T20:12:00+05:30", 3.7],
-];
-
 let schemaReady = false;
 async function ensureSchema(db) {
   if (schemaReady) return;
@@ -63,15 +55,6 @@ async function upsertUser(db, user) {
   ]);
 }
 
-async function seedIfEmpty(db, userId) {
-  const count = await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE user_id=?").bind(userId).first();
-  if (Number(count?.count)) return;
-  await db.batch(demoTransactions.map(([merchant, amountPaise, category, occurredAt, score]) => {
-    const transaction = { merchant, amountPaise, occurredAt };
-    return db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,occurred_at,category,importance_score,dedupe_key,source) VALUES (?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), userId, amountPaise, merchant, occurredAt, category, score, dedupeKey(transaction), "demo");
-  }));
-}
-
 function mapTransaction(row) {
   return {
     id: row.id,
@@ -109,7 +92,6 @@ async function unresolvedSummary(db, userId) {
 }
 
 async function bootstrap(db, user) {
-  await seedIfEmpty(db, user.id);
   const [queue, preferences, summary, totals] = await Promise.all([
     db.prepare("SELECT * FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0 ORDER BY importance_score DESC,occurred_at DESC LIMIT 50").bind(user.id).all(),
     getPreferences(db, user.id), unresolvedSummary(db, user.id),
@@ -135,6 +117,89 @@ async function importTransactions(db, user, payload) {
   }
   await audit(db, user.id, "transactions.imported", "transaction", null, { imported, received: transactions.length });
   return json({ imported, duplicates: transactions.length - imported });
+}
+
+function transactionInput(payload, existing = {}) {
+  const merchant = normalizeMerchant(String(payload.merchant ?? existing.merchant ?? "")).slice(0, 160);
+  const rawAmount = payload.amount ?? (Number(existing.amount_paise || 0) / 100);
+  const amountPaise = Math.round(Number(rawAmount) * 100);
+  const dateValue = payload.occurredAt ?? payload.date ?? existing.occurred_at ?? new Date().toISOString();
+  const parsedDate = new Date(dateValue);
+  if (!merchant || !Number.isFinite(amountPaise) || amountPaise <= 0 || Number.isNaN(parsedDate.getTime())) return null;
+  const occurredAt = parsedDate.toISOString();
+  return {
+    merchant,
+    amountPaise,
+    occurredAt,
+    description: String(payload.description ?? existing.description ?? "").slice(0, 300),
+    category: String(payload.category ?? existing.category ?? "Uncategorised").slice(0, 80),
+    context: String(payload.context ?? existing.context ?? "").slice(0, 1000),
+    reviewStatus: ["unresolved", "explained", "known", "deferred", "auto_resolved"].includes(payload.reviewStatus) ? payload.reviewStatus : (existing.review_status || "unresolved"),
+  };
+}
+
+async function listTransactions(db, user, url) {
+  const rows = await db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 1000").bind(user.id).all();
+  const search = (url.searchParams.get("search") || "").trim().toLowerCase();
+  const status = url.searchParams.get("status") || "all";
+  const category = url.searchParams.get("category") || "all";
+  const transactions = rows.results.map(mapTransaction).filter((row) => {
+    if (status !== "all" && row.reviewStatus !== status) return false;
+    if (category !== "all" && row.category !== category) return false;
+    return !search || `${row.merchant} ${row.description || ""} ${row.context || ""}`.toLowerCase().includes(search);
+  });
+  return json({ transactions, total: transactions.length });
+}
+
+async function createTransaction(db, user, payload) {
+  const input = transactionInput(payload);
+  if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
+  const id = crypto.randomUUID();
+  const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
+  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual").run();
+  if (!result.meta?.changes) return json({ error: "This transaction already exists" }, 409);
+  await audit(db, user.id, "transaction.created", "transaction", id);
+  const row = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
+  return json({ transaction: mapTransaction(row) }, 201);
+}
+
+async function replaceTransaction(db, user, id, payload) {
+  const existing = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
+  if (!existing) return json({ error: "Transaction not found" }, 404);
+  const input = transactionInput(payload, existing);
+  if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
+  const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
+  try {
+    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), id, user.id).run();
+  } catch (error) {
+    if (String(error).toLowerCase().includes("unique")) return json({ error: "This edit would duplicate another transaction" }, 409);
+    throw error;
+  }
+  await audit(db, user.id, "transaction.updated", "transaction", id);
+  const row = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
+  return json({ transaction: mapTransaction(row) });
+}
+
+async function deleteTransaction(db, user, id) {
+  const result = await db.prepare("DELETE FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).run();
+  if (!result.meta?.changes) return json({ error: "Transaction not found" }, 404);
+  await audit(db, user.id, "transaction.deleted", "transaction", id);
+  return json({ deleted: true });
+}
+
+async function getInsights(db, user) {
+  const [categories, days, status, totals] = await Promise.all([
+    db.prepare("SELECT COALESCE(category,'Uncategorised') AS category,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY category ORDER BY amount DESC LIMIT 8").bind(user.id).all(),
+    db.prepare("SELECT substr(occurred_at,1,10) AS day,SUM(amount_paise) AS amount FROM transactions WHERE user_id=? GROUP BY day ORDER BY day DESC LIMIT 14").bind(user.id).all(),
+    db.prepare("SELECT review_status AS status,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY review_status").bind(user.id).all(),
+    db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(AVG(amount_paise),0) AS average FROM transactions WHERE user_id=?").bind(user.id).first(),
+  ]);
+  return json({
+    categories: categories.results.map((row) => ({ name: row.category, amountPaise: Number(row.amount), count: Number(row.count) })),
+    days: days.results.reverse().map((row) => ({ day: row.day, amountPaise: Number(row.amount) })),
+    statuses: status.results.map((row) => ({ status: row.status, count: Number(row.count) })),
+    totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0), averagePaise: Number(totals?.average || 0) },
+  });
 }
 
 async function updateTransaction(db, user, id, payload) {
@@ -196,7 +261,10 @@ async function handleApi(request, env, url) {
   if (!user) return json({ error: "Authentication required" }, 401);
   await upsertUser(env.DB, user);
   if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user));
+  if (request.method === "GET" && url.pathname === "/api/transactions") return listTransactions(env.DB, user, url);
+  if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
   if (request.method === "POST" && url.pathname === "/api/transactions/import") return importTransactions(env.DB, user, await request.json());
+  if (request.method === "GET" && url.pathname === "/api/insights") return getInsights(env.DB, user);
   if (request.method === "POST" && url.pathname === "/api/reviews/batch") return batchExplain(env.DB, user, await request.json());
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/export") {
@@ -209,6 +277,8 @@ async function handleApi(request, env, url) {
   }
   const transactionMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());
+  if (request.method === "PUT" && transactionMatch) return replaceTransaction(env.DB, user, transactionMatch[1], await request.json());
+  if (request.method === "DELETE" && transactionMatch) return deleteTransaction(env.DB, user, transactionMatch[1]);
   if (request.method === "POST" && url.pathname === "/api/internal/run-reminders") {
     if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
     return json(await processReminders(env));

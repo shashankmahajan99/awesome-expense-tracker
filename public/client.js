@@ -8,6 +8,8 @@ let current = 0;
 let reviewedCount = 0;
 let preferences = null;
 let pendingImport = [];
+let pendingImportSource = "csv";
+let activeRecognition = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -32,6 +34,8 @@ function mapTransaction(transaction, index) {
     amount: formatter.format(Number(transaction.amountPaise || 0) / 100),
     icon: merchant.slice(0, 2).toUpperCase(), tone: tones[index % tones.length],
     status: "Needs context", detail: transaction.category ? `Likely ${transaction.category}` : "Category uncertain",
+    occurredAt: transaction.occurredAt, amountPaise: Number(transaction.amountPaise || 0), category: transaction.category,
+    description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus,
   };
 }
 
@@ -54,7 +58,7 @@ function transactionButton(item) {
 
 function syncQueue() {
   $("#transaction-list").replaceChildren(...items.map(transactionButton));
-  $("#inbox-count").textContent = String(items.length);
+  $$('[data-inbox-count]').forEach((node) => node.textContent = String(items.length));
   $("#batch-list").replaceChildren(...items.map((item) => {
     const chip = document.createElement("span"); chip.dataset.batchId = item.id;
     const dot = document.createElement("i"); dot.className = `mini-dot ${item.tone}`;
@@ -90,18 +94,36 @@ async function resolveCurrent(action, message, context = "") {
   try {
     await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context }) });
     items.splice(current, 1); reviewedCount++; syncQueue();
-    showToast(message, items.length ? "Saved securely · moving to the next payment" : "Today’s review is complete");
-    renderReview();
+    showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
+    dialogs.review?.close();
+    if (!items.length) renderReview();
   } catch (error) { showToast("Couldn’t save yet", error.message); }
 }
 
+function stopVoice() {
+  if (activeRecognition) { activeRecognition.stop(); activeRecognition = null; }
+}
+
+function voiceState(target, button, listening) {
+  button?.classList.toggle("listening", listening); target?.closest("label")?.classList.toggle("listening", listening);
+  const loader = target?.closest("label")?.querySelector(".field-loader"); if (loader) loader.hidden = !listening;
+  const label = button?.querySelector("[data-voice-label]") || (button?.matches("[data-voice-label]") ? button : null);
+  if (label) label.textContent = listening ? (button.id === "batch-voice" ? "■ Stop speaking" : "Stop speaking") : (button.id === "batch-voice" ? "● Speak instead" : "Tap to speak");
+  const hint = button?.querySelector("[data-voice-hint]"); if (hint) hint.textContent = listening ? "Listening… tap again to stop" : "or type your answer below";
+}
+
 function startVoice(target, listeningButton) {
+  if (activeRecognition) { stopVoice(); return; }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { target.focus(); showToast("Voice isn’t available here", "You can type instead"); return; }
   const recognition = new SpeechRecognition(); recognition.lang = "en-IN";
-  recognition.onstart = () => listeningButton?.classList.add("listening");
-  recognition.onresult = (event) => { target.value = event.results[0][0].transcript; target.dispatchEvent(new Event("input")); };
-  recognition.onend = () => listeningButton?.classList.remove("listening"); recognition.start();
+  activeRecognition = recognition;
+  recognition.interimResults = true; recognition.continuous = true;
+  recognition.onstart = () => voiceState(target, listeningButton, true);
+  recognition.onresult = (event) => { target.value = [...event.results].map((result) => result[0].transcript).join(" "); target.dispatchEvent(new Event("input")); };
+  recognition.onerror = (event) => { if (event.error !== "aborted") showToast("Voice stopped", "You can continue by typing"); };
+  recognition.onend = () => { voiceState(target, listeningButton, false); if (activeRecognition === recognition) activeRecognition = null; };
+  recognition.start();
 }
 
 function applyPreferences(value) {
@@ -139,17 +161,66 @@ function parseCSV(text) {
   return rows.map((values) => ({ date: values[dateIndex] || new Date().toISOString(), merchant: values[merchantIndex], amount: Number(String(values[amountIndex]).replace(/[^0-9.-]/g, "")), category: categoryIndex >= 0 ? values[categoryIndex] : "Uncategorised" })).filter((item) => item.merchant && item.amount > 0);
 }
 
+function statementDate(value) {
+  const match = value.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})\b/); if (!match) return null;
+  const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]); const date = new Date(year, Number(match[2]) - 1, Number(match[1]), 12);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function parseStatementText(lines) {
+  const ignored = /opening balance|closing balance|available balance|total debit|total credit|statement summary|page \d|date narration|account number|customer id/i;
+  const candidates = [];
+  for (const raw of lines) {
+    const line = raw.replace(/\s+/g, " ").trim(); const date = statementDate(line); if (!date || ignored.test(line)) continue;
+    const amountMatches = [...line.matchAll(/(?:₹|INR|Rs\.?)?\s*([0-9][0-9,]*\.\d{2})(?=\s|$|Cr|Dr)/gi)]; if (!amountMatches.length) continue;
+    const match = amountMatches[amountMatches.length - 1]; const amount = Number(match[1].replaceAll(",", "")); if (!amount || amount > 100000000) continue;
+    let merchant = line.replace(/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/, "").replace(match[0], "").replace(/\b(?:DR|CR|debit|credit)\b/gi, "").replace(/\s+/g, " ").trim();
+    merchant = merchant.replace(/^[|:\-\s]+|[|:\-\s]+$/g, "").slice(0, 160); if (!merchant || /^\d+$/.test(merchant)) continue;
+    candidates.push({ date, merchant, description: line.slice(0, 300), amount, category: "Uncategorised" });
+  }
+  return candidates;
+}
+
+async function parsePDF(file, password = "") {
+  const pdfjs = await import("/vendor/pdf.mjs"); pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.mjs";
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let task = pdfjs.getDocument({ data: bytes, password });
+  let document;
+  try { document = await task.promise; }
+  catch (error) {
+    if (error?.name !== "PasswordException") throw error;
+    const entered = window.prompt("This bank statement is password-protected. Enter its password. It stays in this browser only.");
+    if (!entered) throw new Error("A password is required to read this statement");
+    task = pdfjs.getDocument({ data: bytes, password: entered }); document = await task.promise;
+  }
+  const lines = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+    const page = await document.getPage(pageNumber); const content = await page.getTextContent();
+    const byLine = new Map();
+    for (const item of content.items) { const y = Math.round(item.transform?.[5] || 0); if (!byLine.has(y)) byLine.set(y, []); byLine.get(y).push(item); }
+    [...byLine.entries()].sort((a, b) => b[0] - a[0]).forEach(([, itemsOnLine]) => lines.push(itemsOnLine.sort((a, b) => (a.transform?.[4] || 0) - (b.transform?.[4] || 0)).map((item) => item.str).join(" ")));
+  }
+  return parseStatementText(lines);
+}
+
 async function loadDashboard() {
   try {
     const data = await api("/api/bootstrap");
     items = data.transactions.map(mapTransaction); reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
     const firstName = (data.user.name || "there").split(" ")[0]; $(".topbar h1").textContent = `Good evening, ${firstName}.`;
-    $(".profile strong").textContent = data.user.name || firstName; $(".profile small").textContent = data.user.email || "Private account";
+    $("[data-profile-name]").textContent = data.user.name || firstName; $("[data-profile-email]").textContent = data.user.email || "Private account";
+    const understood = data.totals.count ? Math.round(((data.totals.count - data.summary.count) / data.totals.count) * 100) : 100;
+    $("#hero-summary").textContent = data.summary.count ? `${data.summary.count} payment${data.summary.count === 1 ? "" : "s"} worth ${formatter.format(data.summary.amountPaise / 100)} need a little context. Everything else is out of your way.` : "Your inbox is clear. Add or import transactions whenever you’re ready.";
+    $$('[data-review-label]').forEach((node) => node.textContent = data.summary.count ? `Review ${data.summary.count} payment${data.summary.count === 1 ? "" : "s"}` : "Inbox clear");
+    $$('[data-open-review]').forEach((button) => button.disabled = !data.summary.count);
+    $("#review-estimate").textContent = data.summary.count ? `~${Math.max(1, Math.ceil(data.summary.count * .3))} min` : "Done";
+    $("#tracked-total").textContent = formatter.format(data.totals.amountPaise / 100); $("#tracked-count").textContent = `${data.totals.count} payments tracked`;
+    $("#understood-percent").textContent = `${understood}%`; $("#understood-detail").textContent = data.summary.count ? `${data.summary.count} still need context` : "Everything is understood";
   } catch (error) { showToast("Preview mode", "Persistent services are starting; sample data remains available"); }
 }
 
 $$('[data-open-review]').forEach((button) => button.addEventListener("click", () => openReview()));
-$$('[data-close-review]').forEach((button) => button.addEventListener("click", () => dialogs.review.close()));
+$$('[data-close-review]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.review.close(); }));
 $("#submit-answer")?.addEventListener("click", () => $("#answer-input").value.trim() && resolveCurrent("explain", "Context saved", $("#answer-input").value.trim()));
 $("#answer-input")?.addEventListener("keydown", (event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) resolveCurrent("explain", "Context saved", event.currentTarget.value.trim()); });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
@@ -160,7 +231,7 @@ $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
 $("#voice-button")?.addEventListener("click", () => startVoice($("#answer-input"), $("#voice-button")));
 
 $$('[data-open-batch]').forEach((button) => button.addEventListener("click", () => { $("#batch-result").hidden = true; $("#batch-input").value = ""; dialogs.batch.showModal(); }));
-$$('[data-close-batch]').forEach((button) => button.addEventListener("click", () => dialogs.batch.close()));
+$$('[data-close-batch]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.batch.close(); }));
 $("#batch-voice")?.addEventListener("click", () => startVoice($("#batch-input"), $("#batch-voice")));
 $("#batch-submit")?.addEventListener("click", async () => {
   const text = $("#batch-input").value.trim(); if (!text) return $("#batch-input").focus();
@@ -193,18 +264,31 @@ $("#delete-account")?.addEventListener("click", async () => {
 
 $$('[data-open-import]').forEach((button) => button.addEventListener("click", () => dialogs.import.showModal()));
 $$('[data-close-import]').forEach((button) => button.addEventListener("click", () => dialogs.import.close()));
-$("#csv-file")?.addEventListener("change", async (event) => {
+$("#statement-file")?.addEventListener("change", async (event) => {
   const file = event.target.files?.[0]; if (!file) return;
-  if (file.size > 5_000_000) return showToast("File is too large", "Use a CSV under 5 MB");
-  pendingImport = parseCSV(await file.text()); $("#import-preview").hidden = false; $("#import-count").textContent = `${pendingImport.length} transactions ready`; $("#import-filename").textContent = file.name; $("#import-submit").disabled = !pendingImport.length;
+  if (file.size > 20_000_000) return showToast("File is too large", "Use a PDF or CSV under 20 MB");
+  $("#import-loading").hidden = false; $("#import-preview").hidden = true; $("#import-submit").disabled = true;
+  try {
+    const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"); pendingImportSource = isPDF ? "bank_pdf" : "csv";
+    pendingImport = isPDF ? await parsePDF(file) : parseCSV(await file.text());
+    $("#import-preview").hidden = false; $("#import-count").textContent = pendingImport.length ? `${pendingImport.length} transactions ready` : "No transaction rows detected";
+    $("#import-filename").textContent = pendingImport.length ? `${file.name} · review them after import` : `${file.name} · try a selectable-text PDF or CSV`;
+    $("#import-submit").disabled = !pendingImport.length;
+  } catch (error) { pendingImport = []; showToast("Couldn’t read statement", error.message || "Try downloading the statement again"); }
+  finally { $("#import-loading").hidden = true; }
 });
-$("#clear-import")?.addEventListener("click", () => { pendingImport = []; $("#csv-file").value = ""; $("#import-preview").hidden = true; $("#import-submit").disabled = true; });
+$("#clear-import")?.addEventListener("click", () => { pendingImport = []; $("#statement-file").value = ""; $("#import-preview").hidden = true; $("#import-submit").disabled = true; });
 $("#import-submit")?.addEventListener("click", async () => {
-  try { const result = await api("/api/transactions/import", { method: "POST", body: JSON.stringify({ transactions: pendingImport, source: "csv" }) }); dialogs.import.close(); showToast(`${result.imported} transactions imported`, `${result.duplicates} duplicates safely skipped`); await loadDashboard(); }
+  try { const result = await api("/api/transactions/import", { method: "POST", body: JSON.stringify({ transactions: pendingImport, source: pendingImportSource }) }); dialogs.import.close(); showToast(`${result.imported} transactions imported`, `${result.duplicates} duplicates safely skipped · manage them in Transactions`); await loadDashboard(); }
   catch (error) { showToast("Import failed", error.message); }
 });
 
 $$('[data-close-completion]').forEach((button) => button.addEventListener("click", () => dialogs.completion.close()));
 $(".menu-button")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
+Object.values(dialogs).filter(Boolean).forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target === dialog) { stopVoice(); dialog.close(); } }));
+const params = new URLSearchParams(location.search);
+if (params.has("preferences")) setTimeout(() => { populatePreferences(preferences); dialogs.preferences?.showModal(); }, 400);
+if (params.has("import")) dialogs.import?.showModal();
+if (params.has("review")) setTimeout(() => openReview(params.get("review")), 400);
 document.addEventListener("keydown", (event) => { if (dialogs.review?.open && event.key.toLowerCase() === "s" && document.activeElement !== $("#answer-input")) { event.preventDefault(); resolveCurrent("defer", "Saved for later"); } });
 loadDashboard();

@@ -1,5 +1,7 @@
 ---
 import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
 
 const categories = [
   { name: "Food & dining", amount: "₹8,240", percent: 72, color: "#e6825b" },
@@ -24,34 +26,17 @@ const transactions = [
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Primary navigation">
-        <a class="brand" href="#top" aria-label="Paisa home"><span class="brand-mark">P</span><span>Paisa</span></a>
-        <nav>
-          <a class="nav-link active" href="#overview"><span>⌂</span>Overview</a>
-          <a class="nav-link" href="#inbox"><span>✦</span>Daily inbox <b id="inbox-count">5</b></a>
-          <a class="nav-link" href="#activity"><span>↕</span>Transactions</a>
-          <a class="nav-link" href="#insights"><span>⌁</span>Insights</a>
-          <button class="nav-link" type="button" data-open-preferences><span>⚙</span>Preferences</button>
-        </nav>
-        <div class="sidebar-bottom">
-          <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>12 day streak</strong><p>You have reviewed your spending for 12 days in a row.</p><div class="streak-days" aria-label="Five days completed"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
-          <button class="profile" type="button"><span>SM</span><span><strong>Shashank</strong><small>Personal account</small></span><b>•••</b></button>
-        </div>
-      </aside>
+      <AppSidebar active="overview" />
 
       <main id="top">
-        <header class="topbar">
-          <button class="menu-button" type="button" aria-label="Open menu">☰</button>
-          <div><p class="date">SUNDAY, 2 AUGUST</p><h1>Good evening, Shashank.</h1></div>
-          <div class="top-actions"><button class="import-button" type="button" data-open-import>＋ Import</button><button class="icon-button" type="button" aria-label="Notifications">♢<span></span></button><button class="primary-button" type="button" data-open-review><span>✦</span> Review today</button></div>
-        </header>
+        <AppTopbar title="Good evening." subtitle="YOUR DAILY FINANCIAL INBOX" action="review" />
 
         <section class="hero" id="overview">
           <div class="hero-copy">
             <div class="status-pill"><i></i> YOUR DAILY FINANCIAL INBOX</div>
             <h2>A few things need<br />your attention.</h2>
-            <p>You spent <strong>₹6,420</strong> across 9 payments today. Most looks routine, but 5 payments worth <strong>₹4,820</strong> still need a little context.</p>
-            <div class="hero-actions"><button class="review-button" type="button" data-open-review>Review 5 payments <span>→</span></button><span><strong>~90 sec</strong><small>Estimated review time</small></span></div>
+            <p id="hero-summary">Loading your latest transactions and unresolved payments…</p>
+            <div class="hero-actions"><button class="review-button" type="button" data-open-review><strong data-review-label>Review payments</strong> <span>→</span></button><span><strong id="review-estimate">~1 min</strong><small>Estimated review time</small></span></div>
           </div>
           <div class="hero-visual" aria-label="Spending breakdown">
             <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
@@ -63,8 +48,8 @@ const transactions = [
         </section>
 
         <section class="metrics" aria-label="Financial summary">
-          <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">THIS MONTH</span></div><strong>₹42,680</strong><p><em>↓ 8%</em> from last month</p></article>
-          <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong>91%</strong><p>38 of 42 payments explained</p></article>
+          <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">TOTAL TRACKED</span></div><strong id="tracked-total">—</strong><p id="tracked-count">Loading payments…</p></article>
+          <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong id="understood-percent">—</strong><p id="understood-detail">Review completeness</p></article>
           <article><div><span class="metric-icon blue">◇</span><span class="eyebrow">MONEY TO COLLECT</span></div><strong>₹2,350</strong><p>Rahul and 2 others owe you</p></article>
           <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong id="next-review-time">9:30 PM</strong><p><span id="reminder-mode">Balanced</span> reminder · today</p></article>
         </section>
@@ -86,7 +71,7 @@ const transactions = [
           </article>
 
           <article class="panel snapshot" id="insights">
-            <div class="panel-heading"><div><span class="eyebrow">AUGUST SO FAR</span><h3>Spending snapshot</h3></div><button class="more-button" type="button" aria-label="More options">•••</button></div>
+            <div class="panel-heading"><div><span class="eyebrow">AUGUST SO FAR</span><h3>Spending snapshot</h3></div><a href="/insights">Full insights →</a></div>
             <div class="month-total"><strong>₹42,680</strong><span><i>↓ 8%</i> vs July</span></div>
             <div class="bars" aria-label="Spending over the last seven days">{[34,51,42,68,55,86,64].map((height,index) => <div><i style={`height:${height}%`} class={index === 5 ? "peak" : ""}></i><small>{["M","T","W","T","F","S","S"][index]}</small></div>)}</div>
             <div class="insight-note"><span>✦</span><p><strong>You're spending less.</strong><br />Dining is down ₹1,820 from this time last month.</p></div>
@@ -94,7 +79,7 @@ const transactions = [
         </section>
 
         <section class="lower-grid" id="activity">
-          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="#activity">View details →</a></div><div class="category-list">{categories.map((category) => <div class="category"><div><span class="dot" style={`background:${category.color}`}></span><strong>{category.name}</strong><b>{category.amount}</b></div><div class="track"><i style={`width:${category.percent}%;background:${category.color}`}></i></div></div>)}</div></article>
+          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list">{categories.map((category) => <div class="category"><div><span class="dot" style={`background:${category.color}`}></span><strong>{category.name}</strong><b>{category.amount}</b></div><div class="track"><i style={`width:${category.percent}%;background:${category.color}`}></i></div></div>)}</div></article>
           <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3>Your Gurgaon trip cost ₹3,180.</h3><p>Fuel, tolls, and food made it your largest out-of-routine expense this week.</p><button type="button" data-open-review>Review trip expenses →</button></article>
         </section>
         <footer><span>Paisa understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
@@ -103,13 +88,13 @@ const transactions = [
 
     <dialog class="review-dialog" id="review-dialog">
       <div class="review-shell">
-        <div class="review-top"><div><span class="eyebrow">DAILY REVIEW</span><strong><span id="review-position">1</span> of <span id="review-total">5</span></strong></div><button type="button" data-close-review aria-label="Close review">×</button></div>
+        <div class="review-top"><button class="back-button" type="button" data-close-review>← Dashboard</button><div><span class="eyebrow">DAILY REVIEW</span><strong><span id="review-position">1</span> of <span id="review-total">5</span></strong></div><button type="button" data-close-review aria-label="Close review">×</button></div>
         <div class="progress"><i id="review-progress"></i></div>
         <div class="review-card">
           <span class="merchant-icon amber large" id="review-icon">A</span><p id="review-meta">TODAY · 5:42 PM</p><h2 id="review-amount">₹8,400</h2><h3 id="review-merchant">Amazon</h3>
           <div class="prompt"><span>✦</span><p><strong id="review-question">What was this payment for?</strong><small id="review-hint">It’s larger than your usual Amazon purchase.</small></p></div>
-          <button class="voice-button" id="voice-button" type="button"><span>●</span><strong>Tap to speak</strong><small>or type your answer below</small></button>
-          <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><button type="button" id="submit-answer">→</button></label>
+          <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
+          <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and return to dashboard">✓</button></label>
           <div class="quick-actions"><button type="button" data-action="known">Known / repeat</button><button type="button" data-action="group">Group with another</button><button type="button" data-action="skip">Skip for now</button></div>
         </div>
         <p class="keyboard-hint">Press <kbd>Enter</kbd> to save · <kbd>S</kbd> to skip · <kbd>Esc</kbd> to close</p>
@@ -120,11 +105,11 @@ const transactions = [
       <div class="sheet-top"><div><span class="eyebrow">BATCH EXPLANATION</span><h2>Explain several payments at once.</h2></div><button type="button" data-close-batch aria-label="Close batch explanation">×</button></div>
       <p class="sheet-intro">Mention merchants naturally. Paisa will locate the matching payments, group related spending, and leave only unmatched items for later.</p>
       <div class="batch-example"><span>✦</span><p>“The petrol and toll were from today’s Gurgaon trip. Blinkit was groceries.”</p></div>
-      <label class="batch-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea></label>
+      <label class="batch-field listening-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea><i class="field-loader" aria-label="Listening" hidden></i></label>
       <div class="batch-list" id="batch-list" aria-label="Payments available to match">
         {transactions.map((item) => <span data-batch-id={item.id}><i class={`mini-dot ${item.tone}`}></i>{item.merchant} · {item.amount}</span>)}
       </div>
-      <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice">● Speak instead</button><button class="primary-button" type="button" id="batch-submit">Match & explain <span>→</span></button></div>
+      <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice" data-voice-label>● Speak instead</button><button class="primary-button" type="button" id="batch-submit">Match & explain <span>→</span></button></div>
       <div class="batch-result" id="batch-result" hidden><span>✓</span><p><strong>Explanation applied</strong><small id="batch-result-text"></small></p></div>
     </dialog>
 
@@ -159,10 +144,11 @@ const transactions = [
 
     <dialog class="sheet-dialog import-dialog" id="import-dialog">
       <div class="sheet-top"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa.</h2></div><button type="button" data-close-import aria-label="Close import">×</button></div>
-      <p class="sheet-intro">Upload a CSV export from your bank or wallet. Paisa deduplicates repeated rows and stores amounts as precise paise values.</p>
-      <label class="file-drop" id="file-drop"><input id="csv-file" type="file" accept=".csv,text/csv" /><span>⇧</span><strong>Choose a CSV file</strong><small>Columns: date, merchant or description, amount, category</small></label>
+      <p class="sheet-intro">Upload your bank statement as a PDF or CSV. PDF text is read in your browser; Paisa sends only the transactions you confirm.</p>
+      <label class="file-drop" id="file-drop"><input id="statement-file" type="file" accept=".csv,.pdf,text/csv,application/pdf" /><span>⇧</span><strong>Choose a bank PDF or CSV</strong><small>PDF statements up to 20 MB · password-protected files supported</small></label>
+      <div class="import-loading" id="import-loading" hidden><i></i><span><strong>Reading statement…</strong><small>This can take a few seconds for large PDFs.</small></span></div>
       <div class="import-preview" id="import-preview" hidden><div><strong id="import-count">0 transactions ready</strong><small id="import-filename"></small></div><button type="button" id="clear-import">Remove</button></div>
-      <div class="preference-note"><span>♢</span><p><strong>Your data remains private to your account.</strong><small>The import is validated, deduplicated, and never exposed to another Paisa user.</small></p></div>
+      <div class="preference-note"><span>♢</span><p><strong>Your raw statement is never uploaded or stored.</strong><small>Extraction happens locally. Only the parsed transaction rows are sent after you confirm.</small></p></div>
       <div class="sheet-actions"><button class="secondary-button" type="button" data-close-import>Cancel</button><button class="primary-button" type="button" id="import-submit" disabled>Import securely</button></div>
     </dialog>
 

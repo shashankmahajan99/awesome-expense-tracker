@@ -1,0 +1,23 @@
+name: Paisa
+options:
+  bundleIdPrefix: com.shashankmahajan
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+targets:
+  Paisa:
+    type: application
+    platform: iOS
+    sources: [Paisa]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shashankmahajan.paisa
+        INFOPLIST_KEY_CFBundleDisplayName: Paisa
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Paisa transcribes your review explanation on device.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Paisa uses the microphone only while you choose to speak.
+        GENERATE_INFOPLIST_FILE: YES
+    scheme:
+      testTargets: []
