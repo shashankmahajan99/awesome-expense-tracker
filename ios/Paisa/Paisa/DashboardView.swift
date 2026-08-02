@@ -2,21 +2,21 @@ import SwiftUI
 import SwiftData
 
 struct DashboardView: View {
-    @Environment(\.modelContext) private var context
-    @Query(sort: \PaisaTransaction.occurredAt, order: .reverse) private var transactions: [PaisaTransaction]
+    @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }, sort: \PaisaTransaction.occurredAt, order: .reverse) private var transactions: [PaisaTransaction]
     @State private var showReview = false
     @State private var showImport = false
 
     private var unresolved: [PaisaTransaction] { transactions.filter { $0.reviewStatus == "unresolved" || $0.reviewStatus == "deferred" } }
     private var total: Double { transactions.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) }.reduce(0) { $0 + $1.amount } }
+    private var unresolvedLabel: String { unresolved.count == 1 ? "1 payment" : "\(unresolved.count) payments" }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 Text("DAILY FINANCIAL INBOX").font(.caption2.bold()).foregroundStyle(.secondary)
                 Text(unresolved.isEmpty ? "Everything makes sense." : "A few things need your attention.").font(.largeTitle.bold())
-                Text("You spent \(PaisaFormat.amount(total)) today. \(unresolved.count) payments still need context.").foregroundStyle(.secondary)
-                Button { showReview = true } label: { Label("Review \(unresolved.count) payments", systemImage: "sparkles").frame(maxWidth: .infinity) }
+                Text("You spent \(PaisaFormat.amount(total)) today. \(unresolvedLabel) still need context.").foregroundStyle(.secondary)
+                Button { showReview = true } label: { Label("Review \(unresolvedLabel)", systemImage: "sparkles").frame(maxWidth: .infinity) }
                     .buttonStyle(.borderedProminent).controlSize(.large).disabled(unresolved.isEmpty)
                 HStack {
                     SummaryCard(title: "Today", value: PaisaFormat.amount(total), icon: "indianrupeesign.circle")
@@ -32,12 +32,6 @@ struct DashboardView: View {
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showImport = true } label: { Label("Import", systemImage: "square.and.arrow.down") } } }
         .sheet(isPresented: $showReview) { NavigationStack { ReviewView(transactions: unresolved) } }
         .sheet(isPresented: $showImport) { StatementImportView() }
-        .task { seedIfNeeded() }
-    }
-
-    private func seedIfNeeded() {
-        guard transactions.isEmpty else { return }
-        context.insert(PaisaTransaction(merchant: "Sample coffee", amount: 280, category: "Food & dining", source: "sample"))
     }
 }
 

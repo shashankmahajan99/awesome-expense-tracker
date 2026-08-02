@@ -9,6 +9,7 @@ const { active = "overview" } = Astro.props;
     <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>
     <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><span>↕</span>Transactions</a>
     <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><span>⌁</span>Insights</a>
+    <a class="nav-link" href="/connect-device"><span>▯</span>Connect iPhone</a>
     <a class="nav-link" href="/?preferences=1"><span>⚙</span>Preferences</a>
   </nav>
   <div class="sidebar-bottom">

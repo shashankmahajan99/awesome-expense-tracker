@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import Speech
 import AVFoundation
 
@@ -13,7 +14,7 @@ final class SpeechInput: ObservableObject {
 
     func toggle() async {
         if listening { stop(); return }
-        guard await SFSpeechRecognizer.requestAuthorization() == .authorized else { return }
+        guard await requestSpeechAuthorization() == .authorized else { return }
         do {
             let session = AVAudioSession.sharedInstance(); try session.setCategory(.record, mode: .measurement, options: .duckOthers); try session.setActive(true)
             request = SFSpeechAudioBufferRecognitionRequest(); request?.shouldReportPartialResults = true
@@ -24,10 +25,20 @@ final class SpeechInput: ObservableObject {
         } catch { stop() }
     }
     func stop() { if engine.isRunning { engine.stop(); engine.inputNode.removeTap(onBus: 0) }; request?.endAudio(); task?.cancel(); request = nil; task = nil; listening = false }
+
+    private func requestSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
 }
 
 struct ReviewView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @EnvironmentObject private var sync: SyncManager
     let transactions: [PaisaTransaction]
     @State private var index = 0
     @StateObject private var speech = SpeechInput()
@@ -47,5 +58,5 @@ struct ReviewView: View {
             } else { ContentUnavailableView("Review complete", systemImage: "checkmark.circle", description: Text("Your money makes sense.")); Button("Back to dashboard") { dismiss() }.buttonStyle(.borderedProminent) }
         }.padding().navigationTitle("Daily review").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Dashboard") { speech.stop(); dismiss() } } }.onDisappear { speech.stop() }
     }
-    private func save(_ item: PaisaTransaction, status: String) { item.note = speech.text; item.reviewStatus = status; speech.stop(); index += 1; speech.text = "" }
+    private func save(_ item: PaisaTransaction, status: String) { item.note = speech.text; item.reviewStatus = status; item.updatedAt = .now; try? context.save(); Task { await sync.syncIfConnected(context: context) }; speech.stop(); index += 1; speech.text = "" }
 }

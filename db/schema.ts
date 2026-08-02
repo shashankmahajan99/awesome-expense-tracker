@@ -8,4 +8,6 @@ export const tables = {
   review_groups: ["id", "user_id", "title", "context", "category"],
   notification_deliveries: ["id", "user_id", "review_date", "status", "provider_message_id", "attempted_at"],
   audit_log: ["id", "user_id", "action", "entity_type", "entity_id", "created_at"],
+  mobile_sessions: ["id", "user_id", "token_hash", "device_name", "created_at", "last_used_at", "revoked_at"],
+  transaction_tombstones: ["user_id", "transaction_id", "deleted_at"],
 } as const;

@@ -9,6 +9,9 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS daily_reviews (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', unresolved_count INTEGER NOT NULL DEFAULT 0, unresolved_amount_paise INTEGER NOT NULL DEFAULT 0, notified_at TEXT, started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS notification_deliveries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, status TEXT NOT NULL, provider_message_id TEXT, attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, metadata TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS mobile_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, device_name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT)`,
+  `CREATE INDEX IF NOT EXISTS idx_mobile_sessions_user ON mobile_sessions(user_id,revoked_at)`,
+  `CREATE TABLE IF NOT EXISTS transaction_tombstones (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL, deleted_at TEXT NOT NULL, PRIMARY KEY(user_id,transaction_id))`,
 ];
 
 let schemaReady = false;
@@ -40,6 +43,31 @@ function getUser(request) {
   return { id, email, name: name || email.split("@")[0] || "Paisa user" };
 }
 
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+async function sha256(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomToken(size = 32) {
+  const bytes = new Uint8Array(size); crypto.getRandomValues(bytes); return base64url(bytes);
+}
+
+function timestamp(value = new Date()) { return value.toISOString(); }
+function laterThan(left, right) { return new Date(left).getTime() > new Date(right).getTime(); }
+
+async function getMobileUser(request, db) {
+  const match = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i); if (!match || match[1].length < 32) return null;
+  const tokenHash = await sha256(match[1]);
+  const session = await db.prepare("SELECT s.id,s.user_id,u.email,u.display_name FROM mobile_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.revoked_at IS NULL").bind(tokenHash).first();
+  if (!session) return null;
+  await db.prepare("UPDATE mobile_sessions SET last_used_at=CURRENT_TIMESTAMP WHERE id=?").bind(session.id).run();
+  return { id: session.user_id, email: session.email || "", name: session.display_name || "Paisa user", sessionId: session.id };
+}
+
 function localDate(timezone = "Asia/Kolkata") {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
@@ -68,7 +96,62 @@ function mapTransaction(row) {
     context: row.context,
     importanceScore: Number(row.importance_score),
     source: row.source,
+    updatedAt: timestamp(new Date(String(row.updated_at).replace(" ", "T") + (String(row.updated_at).includes("Z") ? "" : "Z"))),
+    isDeleted: false,
   };
+}
+
+async function authorizeMobile(env, user, url) {
+  const callback = url.searchParams.get("callback");
+  const state = String(url.searchParams.get("state") || "").slice(0, 120);
+  const deviceName = String(url.searchParams.get("deviceName") || "iPhone").trim().slice(0, 80) || "iPhone";
+  if (callback !== "paisa://sync-auth" || state.length < 16) return json({ error: "Invalid mobile authorization request" }, 400);
+  if (!env.SITES_BYPASS_TOKEN) return json({ error: "Mobile sync is not configured" }, 503);
+  const accessToken = randomToken(48);
+  const sessionId = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO mobile_sessions (id,user_id,token_hash,device_name) VALUES (?,?,?,?)").bind(sessionId, user.id, await sha256(accessToken), deviceName).run();
+  await audit(env.DB, user.id, "mobile.connected", "mobile_session", sessionId, { deviceName });
+  const redirect = new URL(callback);
+  redirect.searchParams.set("access_token", accessToken);
+  redirect.searchParams.set("sites_token", env.SITES_BYPASS_TOKEN);
+  redirect.searchParams.set("state", state);
+  return new Response(null, { status: 302, headers: { location: redirect.toString(), "cache-control": "no-store", ...securityHeaders } });
+}
+
+async function syncMobile(db, user, payload) {
+  const incoming = Array.isArray(payload.transactions) ? payload.transactions.slice(0, 2000) : []; const aliases = {};
+  for (const item of incoming) {
+    const id = String(item.id || "");
+    const parsedUpdatedAt = new Date(item.updatedAt || 0);
+    if (!/^[0-9a-f-]{36}$/i.test(id) || Number.isNaN(parsedUpdatedAt.getTime())) continue;
+    const updatedAt = timestamp(parsedUpdatedAt);
+    const existing = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
+    if (item.isDeleted) {
+      if (!existing || laterThan(updatedAt, existing.updated_at)) {
+        await db.batch([
+          db.prepare("DELETE FROM transactions WHERE id=? AND user_id=?").bind(id, user.id),
+          db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=CASE WHEN excluded.deleted_at>deleted_at THEN excluded.deleted_at ELSE deleted_at END").bind(user.id, id, updatedAt),
+        ]);
+      }
+      continue;
+    }
+    const tombstone = await db.prepare("SELECT deleted_at FROM transaction_tombstones WHERE user_id=? AND transaction_id=?").bind(user.id, id).first();
+    if (tombstone && !laterThan(updatedAt, tombstone.deleted_at)) continue;
+    const input = transactionInput(item, existing || {}); if (!input) continue;
+    const model = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 }; const key = dedupeKey(model);
+    if (existing) {
+      if (laterThan(updatedAt, existing.updated_at)) await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,source=?,updated_at=? WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 30), updatedAt, id, user.id).run();
+    } else {
+      const duplicate = await db.prepare("SELECT id FROM transactions WHERE user_id=? AND dedupe_key=?").bind(user.id, key).first();
+      if (duplicate) { aliases[id] = duplicate.id; continue; }
+      await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 30), updatedAt, updatedAt).run();
+    }
+  }
+  const [transactions, tombstones] = await Promise.all([
+    db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 2000").bind(user.id).all(),
+    db.prepare("SELECT transaction_id,deleted_at FROM transaction_tombstones WHERE user_id=?").bind(user.id).all(),
+  ]);
+  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases });
 }
 
 async function getPreferences(db, userId) {
@@ -181,8 +264,9 @@ async function replaceTransaction(db, user, id, payload) {
 }
 
 async function deleteTransaction(db, user, id) {
-  const result = await db.prepare("DELETE FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).run();
-  if (!result.meta?.changes) return json({ error: "Transaction not found" }, 404);
+  const result = await db.prepare("DELETE FROM transactions WHERE id=? AND user_id=? RETURNING id").bind(id, user.id).first();
+  if (!result) return json({ error: "Transaction not found" }, 404);
+  await db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=excluded.deleted_at").bind(user.id, id, timestamp()).run();
   await audit(db, user.id, "transaction.deleted", "transaction", id);
   return json({ deleted: true });
 }
@@ -259,9 +343,20 @@ async function processReminders(env) {
 async function handleApi(request, env, url) {
   if (!env.DB) return json({ error: "Database binding unavailable" }, 503);
   await ensureSchema(env.DB);
+  if (request.method === "POST" && url.pathname === "/api/internal/run-reminders") {
+    if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
+    return json(await processReminders(env));
+  }
+  if (url.pathname === "/api/mobile/sync" || url.pathname === "/api/mobile/session") {
+    const mobileUser = await getMobileUser(request, env.DB); if (!mobileUser) return json({ error: "Mobile authentication required" }, 401);
+    if (request.method === "POST" && url.pathname === "/api/mobile/sync") return syncMobile(env.DB, mobileUser, await request.json());
+    if (request.method === "DELETE" && url.pathname === "/api/mobile/session") { await env.DB.prepare("UPDATE mobile_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(mobileUser.sessionId).run(); return json({ disconnected: true }); }
+  }
   const user = getUser(request);
   if (!user) return json({ error: "Authentication required" }, 401);
   await upsertUser(env.DB, user);
+  if (request.method === "GET" && url.pathname === "/api/mobile/authorize") return authorizeMobile(env, user, url);
+  if (request.method === "GET" && url.pathname === "/api/mobile/devices") { const rows = await env.DB.prepare("SELECT id,device_name,created_at,last_used_at FROM mobile_sessions WHERE user_id=? AND revoked_at IS NULL ORDER BY last_used_at DESC").bind(user.id).all(); return json({ devices: rows.results }); }
   if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user));
   if (request.method === "GET" && url.pathname === "/api/transactions") return listTransactions(env.DB, user, url);
   if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
@@ -281,10 +376,6 @@ async function handleApi(request, env, url) {
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());
   if (request.method === "PUT" && transactionMatch) return replaceTransaction(env.DB, user, transactionMatch[1], await request.json());
   if (request.method === "DELETE" && transactionMatch) return deleteTransaction(env.DB, user, transactionMatch[1]);
-  if (request.method === "POST" && url.pathname === "/api/internal/run-reminders") {
-    if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
-    return json(await processReminders(env));
-  }
   return json({ error: "Not found" }, 404);
 }
 

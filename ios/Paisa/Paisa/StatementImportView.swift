@@ -6,6 +6,7 @@ import PDFKit
 struct StatementImportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var sync: SyncManager
     @State private var showPicker = false
     @State private var loading = false
     @State private var rows: [StatementRow] = []
@@ -20,7 +21,7 @@ struct StatementImportView: View {
                 if loading { ProgressView("Reading statement…") }
                 if !rows.isEmpty {
                     List(rows) { row in HStack { VStack(alignment: .leading) { Text(row.merchant).lineLimit(1); Text(row.date, style: .date).font(.caption).foregroundStyle(.secondary) }; Spacer(); Text(PaisaFormat.amount(row.amount)).bold() } }.listStyle(.plain)
-                    Button("Import \(rows.count) transactions") { rows.forEach { context.insert(PaisaTransaction(merchant: $0.merchant, amount: $0.amount, occurredAt: $0.date, source: "bank_statement")) }; dismiss() }.buttonStyle(.borderedProminent)
+                    Button("Import \(rows.count) transactions") { rows.forEach { context.insert(PaisaTransaction(merchant: $0.merchant, amount: $0.amount, occurredAt: $0.date, source: "bank_statement")) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }.buttonStyle(.borderedProminent)
                 } else if !loading { Button("Choose PDF or CSV") { showPicker = true }.buttonStyle(.borderedProminent).controlSize(.large) }
                 Spacer()
             }.padding().navigationTitle("Statement import").navigationBarTitleDisplayMode(.inline).toolbar { Button("Close") { dismiss() } }

@@ -10,6 +10,7 @@
 		1A75DFA27A0D97EA8004DA25 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9681764243E7CC608F8FF25 /* Models.swift */; };
 		2728D655504C72F5C8A76275 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FD3A663EBA89540EABEA1A /* DashboardView.swift */; };
 		5CCD24012DC587F1C85A1AA7 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */; };
+		61DB449BCDCCBFD969549E5E /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C755540DECB7CF711E6AA700 /* SyncService.swift */; };
 		7E034746E975AA523609E92F /* PaisaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442737AF976C78C2494E6621 /* PaisaApp.swift */; };
 		C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF5760BD7C0152184603E97 /* TransactionsView.swift */; };
 		FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */; };
@@ -19,8 +20,10 @@
 		442737AF976C78C2494E6621 /* PaisaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaisaApp.swift; sourceTree = "<group>"; };
 		505C5411F09EF4DD6AACFFEE /* Paisa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Paisa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		66FD3A663EBA89540EABEA1A /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		8703600E03D7E98ECE224E16 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementImportView.swift; sourceTree = "<group>"; };
 		ABF5760BD7C0152184603E97 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
+		C755540DECB7CF711E6AA700 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		D9681764243E7CC608F8FF25 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -30,10 +33,12 @@
 			isa = PBXGroup;
 			children = (
 				66FD3A663EBA89540EABEA1A /* DashboardView.swift */,
+				8703600E03D7E98ECE224E16 /* Info.plist */,
 				D9681764243E7CC608F8FF25 /* Models.swift */,
 				442737AF976C78C2494E6621 /* PaisaApp.swift */,
 				ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */,
 				8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */,
+				C755540DECB7CF711E6AA700 /* SyncService.swift */,
 				ABF5760BD7C0152184603E97 /* TransactionsView.swift */,
 			);
 			path = Paisa;
@@ -85,7 +90,8 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					F820DE502A62CF8BA2698CD0 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = QWXY4T9SKT;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -118,6 +124,7 @@
 				7E034746E975AA523609E92F /* PaisaApp.swift in Sources */,
 				5CCD24012DC587F1C85A1AA7 /* ReviewView.swift in Sources */,
 				FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */,
+				61DB449BCDCCBFD969549E5E /* SyncService.swift in Sources */,
 				C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -130,10 +137,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Paisa;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Paisa uses the microphone only while you choose to speak.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Paisa transcribes your review explanation on device.";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Paisa/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -179,7 +184,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = QWXY4T9SKT;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -213,10 +218,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Paisa;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Paisa uses the microphone only while you choose to speak.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Paisa transcribes your review explanation on device.";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Paisa/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -262,7 +265,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = QWXY4T9SKT;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;

@@ -6,18 +6,36 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: QWXY4T9SKT
 targets:
   Paisa:
     type: application
     platform: iOS
     sources: [Paisa]
+    info:
+      path: Paisa/Info.plist
+      properties:
+        CFBundleDisplayName: Paisa
+        NSSpeechRecognitionUsageDescription: Paisa transcribes your review explanation on device.
+        NSMicrophoneUsageDescription: Paisa uses the microphone only while you choose to speak.
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: com.shashankmahajan.paisa
+            CFBundleURLSchemes:
+              - paisa
     settings:
       base:
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: com.shashankmahajan.paisa
-        INFOPLIST_KEY_CFBundleDisplayName: Paisa
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Paisa transcribes your review explanation on device.
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Paisa uses the microphone only while you choose to speak.
-        GENERATE_INFOPLIST_FILE: YES
     scheme:
       testTargets: []
