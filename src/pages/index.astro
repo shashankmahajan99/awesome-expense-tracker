@@ -31,7 +31,7 @@ const transactions = [
           <a class="nav-link" href="#inbox"><span>✦</span>Daily inbox <b id="inbox-count">5</b></a>
           <a class="nav-link" href="#activity"><span>↕</span>Transactions</a>
           <a class="nav-link" href="#insights"><span>⌁</span>Insights</a>
-          <a class="nav-link" href="#settings"><span>⚙</span>Preferences</a>
+          <button class="nav-link" type="button" data-open-preferences><span>⚙</span>Preferences</button>
         </nav>
         <div class="sidebar-bottom">
           <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>12 day streak</strong><p>You have reviewed your spending for 12 days in a row.</p><div class="streak-days" aria-label="Five days completed"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
@@ -66,12 +66,12 @@ const transactions = [
           <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">THIS MONTH</span></div><strong>₹42,680</strong><p><em>↓ 8%</em> from last month</p></article>
           <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong>91%</strong><p>38 of 42 payments explained</p></article>
           <article><div><span class="metric-icon blue">◇</span><span class="eyebrow">MONEY TO COLLECT</span></div><strong>₹2,350</strong><p>Rahul and 2 others owe you</p></article>
-          <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong>9:30 PM</strong><p>Balanced reminder · today</p></article>
+          <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong id="next-review-time">9:30 PM</strong><p><span id="reminder-mode">Balanced</span> reminder · today</p></article>
         </section>
 
         <section class="content-grid" id="inbox">
           <article class="panel inbox-panel">
-            <div class="panel-heading"><div><span class="eyebrow">NEEDS YOUR INPUT</span><h3>Daily inbox</h3></div><button type="button" data-open-review>Review all <span>→</span></button></div>
+            <div class="panel-heading"><div><span class="eyebrow">NEEDS YOUR INPUT</span><h3>Daily inbox</h3></div><div class="panel-actions"><button type="button" data-open-batch>Explain together</button><button type="button" data-open-review>Review all <span>→</span></button></div></div>
             <div class="transaction-list" id="transaction-list">
               {transactions.map((transaction) => (
                 <button class="transaction" type="button" data-id={transaction.id}>
@@ -116,22 +116,78 @@ const transactions = [
       </div>
     </dialog>
 
+    <dialog class="sheet-dialog batch-dialog" id="batch-dialog">
+      <div class="sheet-top"><div><span class="eyebrow">BATCH EXPLANATION</span><h2>Explain several payments at once.</h2></div><button type="button" data-close-batch aria-label="Close batch explanation">×</button></div>
+      <p class="sheet-intro">Mention merchants naturally. Paisa will locate the matching payments, group related spending, and leave only unmatched items for later.</p>
+      <div class="batch-example"><span>✦</span><p>“The petrol and toll were from today’s Gurgaon trip. Blinkit was groceries.”</p></div>
+      <label class="batch-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea></label>
+      <div class="batch-list" id="batch-list" aria-label="Payments available to match">
+        {transactions.map((item) => <span data-batch-id={item.id}><i class={`mini-dot ${item.tone}`}></i>{item.merchant} · {item.amount}</span>)}
+      </div>
+      <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice">● Speak instead</button><button class="primary-button" type="button" id="batch-submit">Match & explain <span>→</span></button></div>
+      <div class="batch-result" id="batch-result" hidden><span>✓</span><p><strong>Explanation applied</strong><small id="batch-result-text"></small></p></div>
+    </dialog>
+
+    <dialog class="sheet-dialog preferences-dialog" id="preferences-dialog">
+      <div class="sheet-top"><div><span class="eyebrow">REMINDER PREFERENCES</span><h2>Make reminders feel right.</h2></div><button type="button" data-close-preferences aria-label="Close preferences">×</button></div>
+      <p class="sheet-intro">Paisa sends at most one useful reminder a day, and stays quiet when everything is already understood.</p>
+      <form id="preferences-form">
+        <fieldset class="personality-options"><legend>Reminder personality</legend>
+          <label><input type="radio" name="personality" value="Gentle" /><span><strong>Gentle</strong><small>Only when unresolved spending exceeds ₹2,000.</small></span></label>
+          <label><input type="radio" name="personality" value="Balanced" checked /><span><strong>Balanced <em>Recommended</em></strong><small>Two payments or one important payment remains.</small></span></label>
+          <label><input type="radio" name="personality" value="Strict" /><span><strong>Strict</strong><small>Daily whenever anything meaningful remains.</small></span></label>
+        </fieldset>
+        <div class="preference-grid">
+          <label><span>Preferred review time</span><input name="reviewTime" type="time" value="21:30" /></label>
+          <label><span>Important payment</span><select name="importantAmount"><option value="1000">Above ₹1,000</option><option value="2000">Above ₹2,000</option><option value="5000">Above ₹5,000</option></select></label>
+          <label><span>Quiet hours start</span><input name="quietStart" type="time" value="23:00" /></label>
+          <label><span>Quiet hours end</span><input name="quietEnd" type="time" value="07:00" /></label>
+        </div>
+        <label class="toggle-row"><span><strong>Sunday cleanup</strong><small>Show a weekly catch-up only when missing context affects your insights.</small></span><input name="weeklyCleanup" type="checkbox" checked /><i></i></label>
+        <div class="preference-note"><span>♢</span><p><strong>Anti-annoyance rules are always on.</strong><small>No repeated evening alerts, known EMIs, reversals, refunds, or reminders after you’ve already reviewed.</small></p></div>
+        <div class="sheet-actions"><button class="secondary-button" type="button" data-close-preferences>Cancel</button><button class="primary-button" type="submit">Save preferences</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="completion-dialog" id="completion-dialog">
+      <div class="completion-mark">✓</div><span class="eyebrow">REVIEW COMPLETE</span><h2>Done. Your money makes sense.</h2>
+      <p>Today was higher than usual mainly because of the Gurgaon trip. Your normal day-to-day spending was unchanged.</p>
+      <div class="completion-stats"><span><strong id="completed-count">5</strong><small>PAYMENTS REVIEWED</small></span><span><strong>~90 sec</strong><small>TIME SPENT</small></span><span><strong>12 days</strong><small>CLARITY STREAK</small></span></div>
+      <button class="primary-button" type="button" data-close-completion>Back to overview</button>
+    </dialog>
+
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
     <script define:vars={{ transactions }}>
-      const dialog = document.querySelector('#review-dialog'); const toast = document.querySelector('.toast'); const items = [...transactions]; let current = 0; const $ = (selector) => document.querySelector(selector);
+      const dialog = document.querySelector('#review-dialog'); const batchDialog = document.querySelector('#batch-dialog'); const preferencesDialog = document.querySelector('#preferences-dialog'); const completionDialog = document.querySelector('#completion-dialog'); const toast = document.querySelector('.toast'); const items = [...transactions]; let current = 0; let reviewedCount = 0; const $ = (selector) => document.querySelector(selector);
       const showToast = (title, detail) => { toast.querySelector('strong').textContent = title; toast.querySelector('small').textContent = detail; toast.classList.add('visible'); setTimeout(() => toast.classList.remove('visible'), 2400); };
       const renderReview = () => {
-        if (!items.length) { dialog?.close(); document.querySelector('.empty-inbox')?.removeAttribute('hidden'); $('#transaction-list').innerHTML = ''; $('#inbox-count').textContent = '0'; showToast('Review complete','Everything important is understood'); return; }
+        if (!items.length) { dialog?.close(); batchDialog?.close(); document.querySelector('.empty-inbox')?.removeAttribute('hidden'); $('#transaction-list').innerHTML = ''; $('#inbox-count').textContent = '0'; $('#completed-count').textContent = String(reviewedCount); completionDialog?.showModal(); return; }
         current = Math.min(current, items.length - 1); const item = items[current]; $('#review-position').textContent = String(current + 1); $('#review-total').textContent = String(items.length); $('#review-progress').style.width = `${((current + 1) / items.length) * 100}%`; $('#review-icon').textContent = item.icon; $('#review-icon').className = `merchant-icon ${item.tone} large`; $('#review-meta').textContent = item.meta.toUpperCase(); $('#review-amount').textContent = item.amount; $('#review-merchant').textContent = item.merchant; $('#review-question').textContent = item.merchant === 'Indian Oil' ? 'Was this fuel for your Kushaq?' : 'What was this payment for?'; $('#review-hint').textContent = item.detail; $('#answer-input').value = '';
       };
       const openReview = (id) => { if (id) current = Math.max(0,items.findIndex((item) => item.id === id)); renderReview(); dialog?.showModal(); };
-      const resolveCurrent = (message='Context saved') => { const resolved = items[current]; items.splice(current,1); document.querySelector(`[data-id="${resolved.id}"]`)?.remove(); $('#inbox-count').textContent = String(items.length); showToast(message,items.length?'Moving to the next payment':'Today’s review is complete'); renderReview(); };
+      const resolveCurrent = (message='Context saved') => { const resolved = items[current]; items.splice(current,1); reviewedCount++; document.querySelector(`[data-id="${resolved.id}"]`)?.remove(); document.querySelector(`[data-batch-id="${resolved.id}"]`)?.remove(); $('#inbox-count').textContent = String(items.length); showToast(message,items.length?'Moving to the next payment':'Today’s review is complete'); renderReview(); };
       const bindTransactionButton = (button) => button.addEventListener('click',() => openReview(Number(button.dataset.id)));
       document.querySelectorAll('[data-open-review]').forEach((button) => button.addEventListener('click',() => openReview())); document.querySelectorAll('[data-id]').forEach(bindTransactionButton); document.querySelector('[data-close-review]')?.addEventListener('click',() => dialog.close()); $('#submit-answer')?.addEventListener('click',() => $('#answer-input').value.trim() && resolveCurrent()); $('#answer-input')?.addEventListener('keydown',(event) => { if(event.key === 'Enter' && event.currentTarget.value.trim()) resolveCurrent(); });
-      document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click',() => { if(button.dataset.action === 'skip'){ current=(current+1)%items.length; renderReview(); showToast('Saved for later','We won’t ask again tonight'); } else resolveCurrent(button.dataset.action === 'known'?'Marked as known':'Ready to group'); }));
+      document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click',() => { if(button.dataset.action === 'skip'){ current=(current+1)%items.length; renderReview(); showToast('Saved for later','We won’t ask again tonight'); } else if(button.dataset.action === 'group'){ const merchant=items[current]?.merchant||''; dialog.close(); $('#batch-input').value=`${merchant} was part of `; batchDialog.showModal(); $('#batch-input').focus(); } else resolveCurrent('Marked as known'); }));
       $('#voice-button')?.addEventListener('click',() => { const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SpeechRecognition){ $('#answer-input').focus(); showToast('Voice isn’t available here','You can type a quick answer instead'); return; } const recognition=new SpeechRecognition(); recognition.lang='en-IN'; recognition.onstart=() => $('#voice-button').classList.add('listening'); recognition.onresult=(event) => { $('#answer-input').value=event.results[0][0].transcript; }; recognition.onend=() => $('#voice-button').classList.remove('listening'); recognition.start(); });
       document.addEventListener('keydown',(event) => { if(dialog?.open && event.key.toLowerCase()==='s' && document.activeElement!==$('#answer-input')){ event.preventDefault(); current=(current+1)%items.length; renderReview(); } }); document.querySelector('.menu-button')?.addEventListener('click',() => document.querySelector('.sidebar')?.classList.toggle('open'));
+
+      const merchantAliases = { 'Amazon':['amazon'], 'Zomato':['zomato','dinner','lunch'], 'Indian Oil':['indian oil','petrol','fuel'], 'Delhi Gurgaon Toll':['toll','gurgaon trip'], 'Blinkit':['blinkit','groceries','grocery'] };
+      const syncBatchChips = () => $('#batch-list').replaceChildren(...items.map((item) => { const chip=document.createElement('span'); chip.dataset.batchId=String(item.id); const dot=document.createElement('i'); dot.className=`mini-dot ${item.tone}`; chip.append(dot,`${item.merchant} · ${item.amount}`); return chip; }));
+      const openBatch = () => { $('#batch-result').hidden=true; $('#batch-input').value=''; document.querySelectorAll('[data-batch-id]').forEach((chip) => chip.classList.remove('matched')); batchDialog.showModal(); };
+      document.querySelectorAll('[data-open-batch]').forEach((button) => button.addEventListener('click',openBatch)); document.querySelectorAll('[data-close-batch]').forEach((button) => button.addEventListener('click',() => batchDialog.close()));
+      $('#batch-input')?.addEventListener('input',(event) => { const text=event.currentTarget.value.toLowerCase(); items.forEach((item) => { const matched=(merchantAliases[item.merchant]||[item.merchant.toLowerCase()]).some((alias) => text.includes(alias)); document.querySelector(`[data-batch-id="${item.id}"]`)?.classList.toggle('matched',matched); }); });
+      $('#batch-submit')?.addEventListener('click',() => { const text=$('#batch-input').value.trim().toLowerCase(); if(!text){ $('#batch-input').focus(); return; } const matched=items.filter((item) => (merchantAliases[item.merchant]||[item.merchant.toLowerCase()]).some((alias) => text.includes(alias))); $('#batch-result').hidden=false; if(!matched.length){ $('#batch-result-text').textContent='No merchant names matched yet. Try mentioning petrol, toll, Blinkit, Zomato, or Amazon.'; return; } matched.forEach((item) => { const index=items.findIndex((candidate) => candidate.id===item.id); if(index>=0) items.splice(index,1); document.querySelector(`[data-id="${item.id}"]`)?.remove(); document.querySelector(`[data-batch-id="${item.id}"]`)?.remove(); }); reviewedCount+=matched.length; $('#inbox-count').textContent=String(items.length); $('#batch-result-text').textContent=`Matched ${matched.map((item) => item.merchant).join(', ')}${items.length?`. ${items.length} payment${items.length===1?'':'s'} still need context.`:'. Everything important is understood.'}`; if(!items.length) setTimeout(renderReview,850); else showToast(`${matched.length} payments explained`,'Related spending was grouped automatically'); });
+      $('#batch-voice')?.addEventListener('click',() => { const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SpeechRecognition){ $('#batch-input').focus(); showToast('Voice isn’t available here','You can type one sentence instead'); return; } const recognition=new SpeechRecognition(); recognition.lang='en-IN'; recognition.onresult=(event) => { $('#batch-input').value=event.results[0][0].transcript; $('#batch-input').dispatchEvent(new Event('input')); }; recognition.start(); });
+
+      const form=$('#preferences-form'); const savedPreferences=JSON.parse(localStorage.getItem('paisa_preferences')||'null');
+      const applyPreferences=(preferences) => { const [hour,minute]=preferences.reviewTime.split(':').map(Number); $('#next-review-time').textContent=new Date(2026,0,1,hour,minute).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}); $('#reminder-mode').textContent=preferences.personality; };
+      const populatePreferences=(preferences) => { if(!preferences) return; form.elements.personality.value=preferences.personality; form.elements.reviewTime.value=preferences.reviewTime; form.elements.importantAmount.value=preferences.importantAmount; form.elements.quietStart.value=preferences.quietStart; form.elements.quietEnd.value=preferences.quietEnd; form.elements.weeklyCleanup.checked=preferences.weeklyCleanup; };
+      if(savedPreferences){ populatePreferences(savedPreferences); applyPreferences(savedPreferences); }
+      document.querySelectorAll('[data-open-preferences]').forEach((button) => button.addEventListener('click',() => { populatePreferences(JSON.parse(localStorage.getItem('paisa_preferences')||'null')); preferencesDialog.showModal(); document.querySelector('.sidebar')?.classList.remove('open'); })); document.querySelectorAll('[data-close-preferences]').forEach((button) => button.addEventListener('click',() => preferencesDialog.close()));
+      form?.addEventListener('submit',(event) => { event.preventDefault(); const data=new FormData(form); const preferences={personality:data.get('personality'),reviewTime:data.get('reviewTime'),importantAmount:data.get('importantAmount'),quietStart:data.get('quietStart'),quietEnd:data.get('quietEnd'),weeklyCleanup:data.get('weeklyCleanup')==='on'}; localStorage.setItem('paisa_preferences',JSON.stringify(preferences)); applyPreferences(preferences); preferencesDialog.close(); showToast('Preferences saved',`${preferences.personality} reminders at ${$('#next-review-time').textContent}`); });
+      document.querySelectorAll('[data-close-completion]').forEach((button) => button.addEventListener('click',() => completionDialog.close()));
       const apiBase=import.meta.env.PUBLIC_API_URL;
       if(apiBase) fetch(`${apiBase}/v1/expense`,{headers:{Authorization:`Bearer ${localStorage.getItem('paisa_token')||''}`}}).then(async(response) => {
         if(!response.ok) return;
@@ -139,7 +195,7 @@ const transactions = [
         if(!payload.expenses?.length) return;
         const formatter=new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0});
         const liveItems=payload.expenses.slice(0,7).map((expense,index) => ({id:Number(expense.id)||index+100,merchant:expense.paidTo||expense.description||'Unknown payment',meta:new Date(expense.date||Date.now()).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}),amount:formatter.format(expense.amount),icon:(expense.paidTo||expense.description||'?').slice(0,2).toUpperCase(),tone:['amber','red','blue','green','yellow'][index%5],status:'Needs context',detail:expense.category?`Likely ${expense.category}`:'Category uncertain'}));
-        items.splice(0,items.length,...liveItems); $('#inbox-count').textContent=String(items.length); $('#transaction-list').replaceChildren(...liveItems.map((item) => {
+        items.splice(0,items.length,...liveItems); reviewedCount=0; syncBatchChips(); $('#inbox-count').textContent=String(items.length); $('#transaction-list').replaceChildren(...liveItems.map((item) => {
           const button=document.createElement('button'); button.className='transaction'; button.type='button'; button.dataset.id=String(item.id);
           const icon=document.createElement('span'); icon.className=`merchant-icon ${item.tone}`; icon.textContent=item.icon;
           const info=document.createElement('span'); info.className='merchant-info'; const name=document.createElement('strong'); name.textContent=item.merchant; const meta=document.createElement('small'); meta.textContent=item.meta; info.append(name,meta);
