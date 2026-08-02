@@ -1,16 +1,152 @@
 ---
 import BaseHead from "../components/BaseHead.astro";
-import Header from "../components/Header/Header.astro";
-import { SITE_TITLE, SITE_DESCRIPTION } from "../consts";
+
+const categories = [
+  { name: "Food & dining", amount: "₹8,240", percent: 72, color: "#e6825b" },
+  { name: "Travel", amount: "₹6,180", percent: 54, color: "#5f8f87" },
+  { name: "Shopping", amount: "₹4,760", percent: 41, color: "#dbad4d" },
+  { name: "Bills", amount: "₹3,420", percent: 29, color: "#7685a8" },
+];
+
+const transactions = [
+  { id: 1, merchant: "Amazon", meta: "Today · 5:42 PM", amount: "₹8,400", icon: "A", tone: "amber", status: "Needs context", detail: "Unusually large for this merchant" },
+  { id: 2, merchant: "Zomato", meta: "Today · 1:18 PM", amount: "₹740", icon: "Z", tone: "red", status: "Needs context", detail: "Dining · possibly shared" },
+  { id: 3, merchant: "Indian Oil", meta: "Today · 9:06 AM", amount: "₹2,100", icon: "IO", tone: "blue", status: "Likely travel", detail: "Fuel · confidence 82%" },
+  { id: 4, merchant: "Delhi Gurgaon Toll", meta: "Today · 8:44 AM", amount: "₹120", icon: "T", tone: "green", status: "Likely travel", detail: "Matches your Gurgaon route" },
+  { id: 5, merchant: "Blinkit", meta: "Yesterday · 8:12 PM", amount: "₹960", icon: "B", tone: "yellow", status: "Needs context", detail: "Likely groceries" },
+];
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
-    <BaseHead title={SITE_TITLE} description={SITE_DESCRIPTION} />
+    <BaseHead title="Paisa — Your daily financial inbox" description="Understand what changed financially today, in two minutes." />
   </head>
   <body>
-    <Header />
-    <main></main>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="Paisa home"><span class="brand-mark">P</span><span>Paisa</span></a>
+        <nav>
+          <a class="nav-link active" href="#overview"><span>⌂</span>Overview</a>
+          <a class="nav-link" href="#inbox"><span>✦</span>Daily inbox <b id="inbox-count">5</b></a>
+          <a class="nav-link" href="#activity"><span>↕</span>Transactions</a>
+          <a class="nav-link" href="#insights"><span>⌁</span>Insights</a>
+          <a class="nav-link" href="#settings"><span>⚙</span>Preferences</a>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>12 day streak</strong><p>You have reviewed your spending for 12 days in a row.</p><div class="streak-days" aria-label="Five days completed"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
+          <button class="profile" type="button"><span>SM</span><span><strong>Shashank</strong><small>Personal account</small></span><b>•••</b></button>
+        </div>
+      </aside>
+
+      <main id="top">
+        <header class="topbar">
+          <button class="menu-button" type="button" aria-label="Open menu">☰</button>
+          <div><p class="date">SUNDAY, 2 AUGUST</p><h1>Good evening, Shashank.</h1></div>
+          <div class="top-actions"><button class="icon-button" type="button" aria-label="Notifications">♢<span></span></button><button class="primary-button" type="button" data-open-review><span>✦</span> Review today</button></div>
+        </header>
+
+        <section class="hero" id="overview">
+          <div class="hero-copy">
+            <div class="status-pill"><i></i> YOUR DAILY FINANCIAL INBOX</div>
+            <h2>A few things need<br />your attention.</h2>
+            <p>You spent <strong>₹6,420</strong> across 9 payments today. Most looks routine, but 5 payments worth <strong>₹4,820</strong> still need a little context.</p>
+            <div class="hero-actions"><button class="review-button" type="button" data-open-review>Review 5 payments <span>→</span></button><span><strong>~90 sec</strong><small>Estimated review time</small></span></div>
+          </div>
+          <div class="hero-visual" aria-label="Spending breakdown">
+            <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <div class="sun"><span>₹6,420</span><small>SPENT TODAY</small></div>
+            <div class="bubble routine"><strong>₹2,800</strong><small>ROUTINE</small></div>
+            <div class="bubble travel"><strong>₹2,100</strong><small>TRAVEL</small></div>
+            <div class="bubble unknown"><strong>₹1,520</strong><small>UNEXPLAINED</small></div>
+          </div>
+        </section>
+
+        <section class="metrics" aria-label="Financial summary">
+          <article><div><span class="metric-icon sage">↗</span><span class="eyebrow">THIS MONTH</span></div><strong>₹42,680</strong><p><em>↓ 8%</em> from last month</p></article>
+          <article><div><span class="metric-icon coral">◎</span><span class="eyebrow">UNDERSTOOD</span></div><strong>91%</strong><p>38 of 42 payments explained</p></article>
+          <article><div><span class="metric-icon blue">◇</span><span class="eyebrow">MONEY TO COLLECT</span></div><strong>₹2,350</strong><p>Rahul and 2 others owe you</p></article>
+          <article><div><span class="metric-icon gold">◷</span><span class="eyebrow">NEXT REVIEW</span></div><strong>9:30 PM</strong><p>Balanced reminder · today</p></article>
+        </section>
+
+        <section class="content-grid" id="inbox">
+          <article class="panel inbox-panel">
+            <div class="panel-heading"><div><span class="eyebrow">NEEDS YOUR INPUT</span><h3>Daily inbox</h3></div><button type="button" data-open-review>Review all <span>→</span></button></div>
+            <div class="transaction-list" id="transaction-list">
+              {transactions.map((transaction) => (
+                <button class="transaction" type="button" data-id={transaction.id}>
+                  <span class={`merchant-icon ${transaction.tone}`}>{transaction.icon}</span>
+                  <span class="merchant-info"><strong>{transaction.merchant}</strong><small>{transaction.meta}</small></span>
+                  <span class="transaction-context"><span>{transaction.status}</span><small>{transaction.detail}</small></span>
+                  <strong class="amount">{transaction.amount}</strong><span class="chevron">›</span>
+                </button>
+              ))}
+            </div>
+            <div class="empty-inbox" hidden><span>✓</span><h4>All clear for today.</h4><p>You’ve explained everything that matters.</p></div>
+          </article>
+
+          <article class="panel snapshot" id="insights">
+            <div class="panel-heading"><div><span class="eyebrow">AUGUST SO FAR</span><h3>Spending snapshot</h3></div><button class="more-button" type="button" aria-label="More options">•••</button></div>
+            <div class="month-total"><strong>₹42,680</strong><span><i>↓ 8%</i> vs July</span></div>
+            <div class="bars" aria-label="Spending over the last seven days">{[34,51,42,68,55,86,64].map((height,index) => <div><i style={`height:${height}%`} class={index === 5 ? "peak" : ""}></i><small>{["M","T","W","T","F","S","S"][index]}</small></div>)}</div>
+            <div class="insight-note"><span>✦</span><p><strong>You're spending less.</strong><br />Dining is down ₹1,820 from this time last month.</p></div>
+          </article>
+        </section>
+
+        <section class="lower-grid" id="activity">
+          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="#activity">View details →</a></div><div class="category-list">{categories.map((category) => <div class="category"><div><span class="dot" style={`background:${category.color}`}></span><strong>{category.name}</strong><b>{category.amount}</b></div><div class="track"><i style={`width:${category.percent}%;background:${category.color}`}></i></div></div>)}</div></article>
+          <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3>Your Gurgaon trip cost ₹3,180.</h3><p>Fuel, tolls, and food made it your largest out-of-routine expense this week.</p><button type="button" data-open-review>Review trip expenses →</button></article>
+        </section>
+        <footer><span>Paisa understands your spending, without making you log every little thing.</span><span>Last synced just now · 42 transactions</span></footer>
+      </main>
+    </div>
+
+    <dialog class="review-dialog" id="review-dialog">
+      <div class="review-shell">
+        <div class="review-top"><div><span class="eyebrow">DAILY REVIEW</span><strong><span id="review-position">1</span> of <span id="review-total">5</span></strong></div><button type="button" data-close-review aria-label="Close review">×</button></div>
+        <div class="progress"><i id="review-progress"></i></div>
+        <div class="review-card">
+          <span class="merchant-icon amber large" id="review-icon">A</span><p id="review-meta">TODAY · 5:42 PM</p><h2 id="review-amount">₹8,400</h2><h3 id="review-merchant">Amazon</h3>
+          <div class="prompt"><span>✦</span><p><strong id="review-question">What was this payment for?</strong><small id="review-hint">It’s larger than your usual Amazon purchase.</small></p></div>
+          <button class="voice-button" id="voice-button" type="button"><span>●</span><strong>Tap to speak</strong><small>or type your answer below</small></button>
+          <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><button type="button" id="submit-answer">→</button></label>
+          <div class="quick-actions"><button type="button" data-action="known">Known / repeat</button><button type="button" data-action="group">Group with another</button><button type="button" data-action="skip">Skip for now</button></div>
+        </div>
+        <p class="keyboard-hint">Press <kbd>Enter</kbd> to save · <kbd>S</kbd> to skip · <kbd>Esc</kbd> to close</p>
+      </div>
+    </dialog>
+
+    <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
+
+    <script define:vars={{ transactions }}>
+      const dialog = document.querySelector('#review-dialog'); const toast = document.querySelector('.toast'); const items = [...transactions]; let current = 0; const $ = (selector) => document.querySelector(selector);
+      const showToast = (title, detail) => { toast.querySelector('strong').textContent = title; toast.querySelector('small').textContent = detail; toast.classList.add('visible'); setTimeout(() => toast.classList.remove('visible'), 2400); };
+      const renderReview = () => {
+        if (!items.length) { dialog?.close(); document.querySelector('.empty-inbox')?.removeAttribute('hidden'); $('#transaction-list').innerHTML = ''; $('#inbox-count').textContent = '0'; showToast('Review complete','Everything important is understood'); return; }
+        current = Math.min(current, items.length - 1); const item = items[current]; $('#review-position').textContent = String(current + 1); $('#review-total').textContent = String(items.length); $('#review-progress').style.width = `${((current + 1) / items.length) * 100}%`; $('#review-icon').textContent = item.icon; $('#review-icon').className = `merchant-icon ${item.tone} large`; $('#review-meta').textContent = item.meta.toUpperCase(); $('#review-amount').textContent = item.amount; $('#review-merchant').textContent = item.merchant; $('#review-question').textContent = item.merchant === 'Indian Oil' ? 'Was this fuel for your Kushaq?' : 'What was this payment for?'; $('#review-hint').textContent = item.detail; $('#answer-input').value = '';
+      };
+      const openReview = (id) => { if (id) current = Math.max(0,items.findIndex((item) => item.id === id)); renderReview(); dialog?.showModal(); };
+      const resolveCurrent = (message='Context saved') => { const resolved = items[current]; items.splice(current,1); document.querySelector(`[data-id="${resolved.id}"]`)?.remove(); $('#inbox-count').textContent = String(items.length); showToast(message,items.length?'Moving to the next payment':'Today’s review is complete'); renderReview(); };
+      const bindTransactionButton = (button) => button.addEventListener('click',() => openReview(Number(button.dataset.id)));
+      document.querySelectorAll('[data-open-review]').forEach((button) => button.addEventListener('click',() => openReview())); document.querySelectorAll('[data-id]').forEach(bindTransactionButton); document.querySelector('[data-close-review]')?.addEventListener('click',() => dialog.close()); $('#submit-answer')?.addEventListener('click',() => $('#answer-input').value.trim() && resolveCurrent()); $('#answer-input')?.addEventListener('keydown',(event) => { if(event.key === 'Enter' && event.currentTarget.value.trim()) resolveCurrent(); });
+      document.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click',() => { if(button.dataset.action === 'skip'){ current=(current+1)%items.length; renderReview(); showToast('Saved for later','We won’t ask again tonight'); } else resolveCurrent(button.dataset.action === 'known'?'Marked as known':'Ready to group'); }));
+      $('#voice-button')?.addEventListener('click',() => { const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SpeechRecognition){ $('#answer-input').focus(); showToast('Voice isn’t available here','You can type a quick answer instead'); return; } const recognition=new SpeechRecognition(); recognition.lang='en-IN'; recognition.onstart=() => $('#voice-button').classList.add('listening'); recognition.onresult=(event) => { $('#answer-input').value=event.results[0][0].transcript; }; recognition.onend=() => $('#voice-button').classList.remove('listening'); recognition.start(); });
+      document.addEventListener('keydown',(event) => { if(dialog?.open && event.key.toLowerCase()==='s' && document.activeElement!==$('#answer-input')){ event.preventDefault(); current=(current+1)%items.length; renderReview(); } }); document.querySelector('.menu-button')?.addEventListener('click',() => document.querySelector('.sidebar')?.classList.toggle('open'));
+      const apiBase=import.meta.env.PUBLIC_API_URL;
+      if(apiBase) fetch(`${apiBase}/v1/expense`,{headers:{Authorization:`Bearer ${localStorage.getItem('paisa_token')||''}`}}).then(async(response) => {
+        if(!response.ok) return;
+        const payload=await response.json();
+        if(!payload.expenses?.length) return;
+        const formatter=new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0});
+        const liveItems=payload.expenses.slice(0,7).map((expense,index) => ({id:Number(expense.id)||index+100,merchant:expense.paidTo||expense.description||'Unknown payment',meta:new Date(expense.date||Date.now()).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}),amount:formatter.format(expense.amount),icon:(expense.paidTo||expense.description||'?').slice(0,2).toUpperCase(),tone:['amber','red','blue','green','yellow'][index%5],status:'Needs context',detail:expense.category?`Likely ${expense.category}`:'Category uncertain'}));
+        items.splice(0,items.length,...liveItems); $('#inbox-count').textContent=String(items.length); $('#transaction-list').replaceChildren(...liveItems.map((item) => {
+          const button=document.createElement('button'); button.className='transaction'; button.type='button'; button.dataset.id=String(item.id);
+          const icon=document.createElement('span'); icon.className=`merchant-icon ${item.tone}`; icon.textContent=item.icon;
+          const info=document.createElement('span'); info.className='merchant-info'; const name=document.createElement('strong'); name.textContent=item.merchant; const meta=document.createElement('small'); meta.textContent=item.meta; info.append(name,meta);
+          const context=document.createElement('span'); context.className='transaction-context'; const status=document.createElement('span'); status.textContent=item.status; const detail=document.createElement('small'); detail.textContent=item.detail; context.append(status,detail);
+          const amount=document.createElement('strong'); amount.className='amount'; amount.textContent=item.amount; const chevron=document.createElement('span'); chevron.className='chevron'; chevron.textContent='›'; button.append(icon,info,context,amount,chevron); bindTransactionButton(button); return button;
+        }));
+      }).catch(()=>{});
+    </script>
   </body>
 </html>
