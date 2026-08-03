@@ -165,6 +165,7 @@ final class SyncManager: ObservableObject {
                         merchant: receipt.merchant,
                         amount: receipt.amount,
                         occurredAt: receipt.occurredAt,
+                        timeVerified: receipt.timeVerified ?? false,
                         category: receipt.category,
                         note: receipt.note,
                         reviewStatus: "unresolved",

@@ -9,12 +9,15 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
     private let amountField = PaisaTextField(title: "Amount", placeholder: "₹0")
     private let categoryField = PaisaTextField(title: "Category")
     private let noteField = PaisaTextField(title: "Note", placeholder: "Optional")
+    private let occurredAtPicker = UIDatePicker()
+    private let timestampHint = UILabel()
     private let accountButton = UIButton(type: .system)
     private let progress = UIActivityIndicatorView(style: .medium)
     private let progressLabel = UILabel()
     private let saveButton = UIButton(type: .system)
     private var extractedText = ""
     private var selectedAccountName: String?
+    private var timeVerified = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -66,6 +69,14 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         categoryField.field.text = "Uncategorised"
         categoryField.field.autocapitalizationType = .words
         noteField.field.autocapitalizationType = .sentences
+        occurredAtPicker.datePickerMode = .dateAndTime
+        occurredAtPicker.preferredDatePickerStyle = .compact
+        occurredAtPicker.locale = Locale(identifier: "en_IN")
+        occurredAtPicker.addTarget(self, action: #selector(timestampChanged), for: .valueChanged)
+        timestampHint.text = "Using current time until a timestamp is found."
+        timestampHint.font = .systemFont(ofSize: 12)
+        timestampHint.textColor = .paisaMuted
+        timestampHint.numberOfLines = 0
         configureAccountButton()
         applyAppearance()
 
@@ -79,7 +90,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
         stack.axis = .vertical
         stack.spacing = 18
-        [topRow, subtitle, progressRow, merchantField, amountField, accountPickerView(), categoryField, noteField, saveButton].forEach(stack.addArrangedSubview)
+        [topRow, subtitle, progressRow, merchantField, amountField, datePickerView(), accountPickerView(), categoryField, noteField, saveButton].forEach(stack.addArrangedSubview)
 
         view.addSubview(scrollView)
         scrollView.addSubview(stack)
@@ -114,7 +125,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
                 processedImage = true
                 let fastText = await recognizeText(in: image, accurate: false) ?? ""
                 let fastDetails = ReceiptParser.parse(fastText)
-                let needsAccurateRetry = fastDetails.amount == nil || fastDetails.merchant.isEmpty
+                let needsAccurateRetry = fastDetails.amount == nil || fastDetails.merchant.isEmpty || fastDetails.occurredAt == nil || !fastDetails.timeVerified
                 let text = needsAccurateRetry ? (await recognizeText(in: image, accurate: true) ?? fastText) : fastText
                 if !text.isEmpty { textParts.append(text) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
@@ -134,6 +145,11 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         merchantField.field.text = details.merchant
         if let amount = details.amount {
             amountField.field.text = ReceiptParser.displayAmount(amount)
+        }
+        if let occurredAt = details.occurredAt {
+            occurredAtPicker.date = occurredAt
+            timeVerified = details.timeVerified
+            timestampHint.text = details.timeVerified ? "Date and exact time extracted from the screenshot." : "Date extracted; time was not visible."
         }
         categoryField.field.text = details.category
         if let note = details.note { noteField.field.text = note }
@@ -179,6 +195,13 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         return field
     }
 
+    private func datePickerView() -> UIView {
+        let label = UILabel(); label.text = "PAYMENT DATE & TIME"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = .paisaMuted
+        let row = UIStackView(arrangedSubviews: [occurredAtPicker, UIView()]); row.axis = .horizontal
+        let field = UIStackView(arrangedSubviews: [label, row, timestampHint]); field.axis = .vertical; field.spacing = 7
+        return field
+    }
+
     private func applyAppearance() {
         view.backgroundColor = .paisaCanvas
         navigationController?.navigationBar.barTintColor = .paisaCanvas
@@ -216,7 +239,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
             request.recognitionLanguages = ["en-IN", "en-US"]
             request.usesLanguageCorrection = accurate
             request.minimumTextHeight = accurate ? 0.012 : 0.018
-            request.customWords = ["Paytm", "UPI", "Paid Successfully", "Transaction ID"]
+            request.customWords = ["Paytm", "UPI", "Paid Successfully", "Transaction ID", "Paid on", "PM", "AM"]
             DispatchQueue.global(qos: .userInitiated).async {
                 do { try VNImageRequestHandler(cgImage: input).perform([request]) }
                 catch { continuation.resume(returning: nil) }
@@ -250,14 +273,15 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
         let category = categoryField.field.text?.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = noteField.field.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let now = Date.now
+        let now = Date.now, occurredAt = occurredAtPicker.date
         let receipt = SharedReceipt(
-            id: SharedReceipt.captureID(merchant: merchant, amount: amount, occurredAt: now, reference: note),
+            id: SharedReceipt.captureID(merchant: merchant, amount: amount, occurredAt: occurredAt, reference: note),
             merchant: merchant,
             amount: amount,
             category: category?.isEmpty == false ? category! : "Uncategorised",
             note: note,
-            occurredAt: now,
+            occurredAt: occurredAt,
+            timeVerified: timeVerified,
             createdAt: now,
             accountTag: selectedAccountName
         )
@@ -279,6 +303,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
     }
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
+    @objc private func timestampChanged() { timeVerified = true; timestampHint.text = "Date and exact time confirmed by you." }
 
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         let allowed = CharacterSet(charactersIn: "0123456789.,₹ ")
@@ -341,7 +366,7 @@ private final class PaisaTextField: UIView {
 }
 
 private enum ReceiptParser {
-    struct Details { let merchant: String; let amount: Double?; let category: String; let note: String? }
+    struct Details { let merchant: String; let amount: Double?; let category: String; let note: String?; let occurredAt: Date?; let timeVerified: Bool }
 
     static func parse(_ text: String) -> Details {
         let lines = text.components(separatedBy: .newlines)
@@ -349,13 +374,14 @@ private enum ReceiptParser {
             .filter { !$0.isEmpty }
         let amount = bestAmount(in: lines)
         let merchant = bestMerchant(in: lines)
+        let timestamp = bestTimestamp(in: lines)
         let learnedCategory = SharedCaptureProfileDirectory.current().category(for: merchant)
         let category = learnedCategory ?? suggestedCategory(for: merchant)
         let note = lines.first(where: { line in
             let lower = line.lowercased()
             return lower.contains("upi") || lower.contains("transaction id") || lower.contains("reference")
         }).map { String($0.prefix(160)) }
-        return Details(merchant: merchant, amount: amount, category: category, note: note)
+        return Details(merchant: merchant, amount: amount, category: category, note: note, occurredAt: timestamp?.date, timeVerified: timestamp?.timeVerified ?? false)
     }
 
     static func amount(from text: String) -> Double? {
@@ -394,8 +420,64 @@ private enum ReceiptParser {
                 score += max(0, 3 - index)
                 candidates.append((value, score))
             }
+            let context = [index > 0 ? lines[index - 1] : "", line, index + 1 < lines.count ? lines[index + 1] : ""].joined(separator: " ").lowercased()
+            if context.range(of: #"\b(paid|sent|payment|amount|debited)\b"#, options: .regularExpression) != nil,
+               line.range(of: #"\b\d{1,2}[:/-]\d{1,2}"#, options: .regularExpression) == nil,
+               let plainRange = line.range(of: #"\b[0-9][0-9,]*(?:\.[0-9]{1,2})?\b"#, options: .regularExpression),
+               let value = amount(from: String(line[plainRange])), value > 0 {
+                candidates.append((value, 6))
+            }
+        }
+        // Paytm occasionally places the currency symbol and value in separate
+        // OCR observations. Score those adjacent lines as one amount.
+        for index in 0..<max(0, lines.count - 1) where lines[index].trimmingCharacters(in: .whitespaces) == "₹" {
+            if let value = amount(from: lines[index + 1]), value > 0 { candidates.append((value, 7)) }
         }
         return candidates.max { lhs, rhs in lhs.score == rhs.score ? lhs.value < rhs.value : lhs.score < rhs.score }?.value
+    }
+
+    private struct Timestamp { let date: Date; let timeVerified: Bool }
+
+    private static func bestTimestamp(in lines: [String], now: Date = .now) -> Timestamp? {
+        let joined = lines.joined(separator: " ")
+            .replacingOccurrences(of: #"(?i)\bat\b"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let candidates = [joined] + lines + zip(lines, lines.dropFirst()).map { "\($0.0) \($0.1)" }
+        let calendar = Calendar(identifier: .gregorian)
+        let timezone = TimeZone(identifier: "Asia/Kolkata") ?? .current
+
+        func parse(_ raw: String, formats: [String], hasTime: Bool) -> Timestamp? {
+            let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: " ,|·"))
+            for format in formats {
+                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = timezone; formatter.dateFormat = format; formatter.isLenient = false
+                if var date = formatter.date(from: cleaned) {
+                    if !format.contains("y") {
+                        let currentYear = calendar.component(.year, from: now)
+                        date = calendar.date(bySetting: .year, value: currentYear, of: date) ?? date
+                        if date.timeIntervalSince(now) > 7 * 86_400 { date = calendar.date(byAdding: .year, value: -1, to: date) ?? date }
+                    }
+                    if !hasTime { date = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? date }
+                    return Timestamp(date: date, timeVerified: hasTime)
+                }
+            }
+            return nil
+        }
+
+        let patterns: [(String, [String], Bool)] = [
+            (#"(?i)\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}[, ]+\d{1,2}:\d{2}(?::\d{2})?\s*[AP]M\b"#, ["d MMM yyyy, h:mm a", "d MMMM yyyy, h:mm a", "d MMM yyyy h:mm a", "d MMMM yyyy h:mm a", "d MMM yyyy, h:mm:ss a"], true),
+            (#"(?i)\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\s+\d{1,2}:\d{2}\s*[AP]M\b"#, ["d MMM, h:mm a", "d MMMM, h:mm a", "d MMM h:mm a", "d MMMM h:mm a"], true),
+            (#"(?i)\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[, ]+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AP]M)?\b"#, ["d/M/yyyy, H:mm", "d-M-yyyy, H:mm", "d/M/yy, h:mm a", "d-M-yy, h:mm a", "d/M/yyyy h:mm a", "d-M-yyyy h:mm a", "d/M/yyyy H:mm:ss"], true),
+            (#"(?i)\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b"#, ["d MMM yyyy", "d MMMM yyyy"], false),
+            (#"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b"#, ["d/M/yyyy", "d-M-yyyy", "d/M/yy", "d-M-yy"], false)
+        ]
+        for candidate in candidates {
+            for (pattern, formats, hasTime) in patterns {
+                guard let range = candidate.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { continue }
+                let raw = String(candidate[range]).replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                if let timestamp = parse(raw, formats: formats, hasTime: hasTime) { return timestamp }
+            }
+        }
+        return nil
     }
 
     private static func bestMerchant(in lines: [String]) -> String {

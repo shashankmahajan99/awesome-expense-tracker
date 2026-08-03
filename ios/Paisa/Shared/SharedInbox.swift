@@ -8,11 +8,12 @@ struct SharedReceipt: Codable, Identifiable {
     let category: String
     let note: String
     let occurredAt: Date
+    let timeVerified: Bool?
     let createdAt: Date
     let accountTag: String?
 
-    init(id: UUID, merchant: String, amount: Double, category: String, note: String, occurredAt: Date, createdAt: Date, accountTag: String? = nil) {
-        self.id = id; self.merchant = merchant; self.amount = amount; self.category = category; self.note = note; self.occurredAt = occurredAt; self.createdAt = createdAt; self.accountTag = accountTag
+    init(id: UUID, merchant: String, amount: Double, category: String, note: String, occurredAt: Date, timeVerified: Bool? = nil, createdAt: Date, accountTag: String? = nil) {
+        self.id = id; self.merchant = merchant; self.amount = amount; self.category = category; self.note = note; self.occurredAt = occurredAt; self.timeVerified = timeVerified; self.createdAt = createdAt; self.accountTag = accountTag
     }
 
     static func captureID(merchant: String, amount: Double, occurredAt: Date, reference: String = "") -> UUID {

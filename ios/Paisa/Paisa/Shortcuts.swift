@@ -11,7 +11,7 @@ struct ImportBankSMSIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let transaction = BankSMSParser.parse(message) else { return .result(dialog: "I couldn’t find a debit amount and merchant. Pass the full bank message and try again.") }
-        let receipt = SharedReceipt(id: SharedReceipt.captureID(merchant: transaction.merchant, amount: transaction.amount, occurredAt: transaction.date, reference: message), merchant: transaction.merchant, amount: transaction.amount, category: transaction.category, note: "Imported from bank SMS · \(message.prefix(240))", occurredAt: transaction.date, createdAt: .now, accountTag: account?.name)
+        let receipt = SharedReceipt(id: SharedReceipt.captureID(merchant: transaction.merchant, amount: transaction.amount, occurredAt: transaction.date, reference: message), merchant: transaction.merchant, amount: transaction.amount, category: transaction.category, note: "Imported from bank SMS · \(message.prefix(240))", occurredAt: transaction.date, timeVerified: BankSMSParser.containsTime(message), createdAt: .now, accountTag: account?.name)
         try SharedInbox.save(receipt)
         return .result(dialog: "Added \(transaction.merchant) for ₹\(transaction.amount.formatted(.number.precision(.fractionLength(0...2)))) to your review inbox.")
     }
@@ -37,7 +37,7 @@ struct CapturePaytmPaymentIntent: AppIntent {
         }?.name ?? profile.lastAccountName
         let category = profile.category(for: savedMerchant) ?? BankSMSParser.category(for: savedMerchant)
         let now = Date.now
-        try SharedInbox.save(SharedReceipt(id: SharedReceipt.captureID(merchant: savedMerchant, amount: amount, occurredAt: now, reference: "paytm-close"), merchant: savedMerchant, amount: amount, category: category, note: "Captured when Paytm closed", occurredAt: now, createdAt: now, accountTag: account?.name ?? automaticAccount))
+        try SharedInbox.save(SharedReceipt(id: SharedReceipt.captureID(merchant: savedMerchant, amount: amount, occurredAt: now, reference: "paytm-close"), merchant: savedMerchant, amount: amount, category: category, note: "Captured when Paytm closed", occurredAt: now, timeVerified: true, createdAt: now, accountTag: account?.name ?? automaticAccount))
         return .result(dialog: "Saved ₹\(amount.formatted(.number.precision(.fractionLength(0...2)))) from Paytm. It is ready in your Paisa Inbox.")
     }
 }
@@ -91,6 +91,7 @@ private enum BankSMSParser {
         let category = category(for: merchant)
         return Result(merchant: merchant, amount: amount, date: date(in: message) ?? .now, category: category)
     }
+    static func containsTime(_ value: String) -> Bool { value.range(of: #"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\b"#, options: [.regularExpression, .caseInsensitive]) != nil }
     private static func date(in value: String) -> Date? {
         guard let range = value.range(of: #"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?\b"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
         for format in ["dd/MM/yy hh:mm a", "dd-MM-yy hh:mm a", "dd/MM/yyyy HH:mm", "dd-MM-yyyy HH:mm", "dd/MM/yy", "dd-MM-yy", "dd/MM/yyyy", "dd-MM-yyyy"] { let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_IN_POSIX"); formatter.dateFormat = format; if let parsed = formatter.date(from: String(value[range])) { return parsed } }
