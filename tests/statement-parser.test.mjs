@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { logicalStatementRecords, parseStatementRecords } from "../public/statement-parser.mjs";
+import { inferStatementCategory, logicalStatementRecords, parseStatementRecords } from "../public/statement-parser.mjs";
 
 const parseDate = (value) => { const match = value.match(/(\d{2})\/(\d{2})\/(\d{4})/); return match ? { occurredAt: `${match[3]}-${match[2]}-${match[1]}T12:00:00.000Z`, timeVerified: false } : null; };
 
@@ -15,6 +15,13 @@ test("reconstructs multiline ICICI statement rows and excludes credits", () => {
 test("uses transaction amount rather than trailing balance", () => {
   const rows = parseStatementRecords(["04/04/2024 UPI/BLINKIT 750.00 D 1,25,900.45"], { filename: "ICICI.pdf", accountTag: "Savings - ICICI", source: "bank_pdf", parseDate });
   assert.equal(rows[0].amount, 750);
+  assert.equal(rows[0].category, "Groceries");
+});
+
+test("suggests categories for recognizable statement merchants and fees", () => {
+  assert.equal(inferStatementCategory("XSOLLA gaming transaction"), "Entertainment");
+  assert.equal(inferStatementCategory("IGST-CI@18%"), "Taxes");
+  assert.equal(inferStatementCategory("DCC Fee"), "Bills");
 });
 
 test("keeps a separately extracted value date with its transaction", () => {

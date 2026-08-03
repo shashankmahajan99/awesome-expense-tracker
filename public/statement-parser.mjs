@@ -4,6 +4,21 @@ const ignored = /opening balance|closing balance|available balance|total debit|t
 
 function clean(value) { return String(value || "").replace(/\s+/g, " ").trim(); }
 
+export function inferStatementCategory(value = "") {
+  const text = String(value).toLowerCase();
+  const rules = [
+    ["Food & dining", /zomato|swiggy|restaurant|cafe|coffee|domino|pizza|burger|kitchen/],
+    ["Groceries", /blinkit|zepto|bigbasket|instamart|grocery|supermarket/],
+    ["Travel", /uber|ola|rapido|metro|railway|irctc|airlines|flight|petrol|diesel|fuel|indian oil|parking|toll/],
+    ["Shopping", /amazon|flipkart|myntra|ajio|retail|store/],
+    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi|dcc fee|service fee|annual fee/],
+    ["Health", /hospital|pharmacy|medical|apollo|doctor|clinic|medicine/],
+    ["Entertainment", /xsolla|steam|playstation|netflix|spotify|hotstar|cinema|bookmyshow|gaming|game/],
+    ["Taxes", /\bigst\b|\bgst\b|\btax\b/],
+  ];
+  return rules.find(([, pattern]) => pattern.test(text))?.[0] || "Uncategorised";
+}
+
 export function logicalStatementRecords(lines) {
   const records = []; let current = "";
   for (const raw of lines) {
@@ -47,7 +62,7 @@ export function parseStatementRecords(lines, { filename, accountTag, source, par
     if (!merchant || /^\d+$/.test(merchant)) merchant = "Bank payment";
     const key = `${date.occurredAt.slice(0, 10)}|${selected.value.toFixed(2)}|${reference.toLowerCase()}|${merchant.toLowerCase()}`;
     if (seen.has(key)) continue; seen.add(key);
-    output.push({ occurredAt: date.occurredAt, timeVerified: date.timeVerified, merchant, description: record.slice(0, 500), amount: selected.value, category: "Uncategorised", accountTag, sourceFile: filename, source, reference });
+    output.push({ occurredAt: date.occurredAt, timeVerified: date.timeVerified, merchant, description: record.slice(0, 500), amount: selected.value, category: inferStatementCategory(`${merchant} ${record}`), accountTag, sourceFile: filename, source, reference });
   }
   return output;
 }

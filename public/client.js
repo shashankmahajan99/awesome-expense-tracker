@@ -41,9 +41,10 @@ function categorySuggestion(value = "") {
     ["Groceries", /blinkit|zepto|bigbasket|instamart|grocery|supermarket/],
     ["Travel", /uber|ola|rapido|metro|railway|irctc|airlines|flight|petrol|diesel|fuel|indian oil|parking|toll/],
     ["Shopping", /amazon|flipkart|myntra|ajio|retail|store/],
-    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi/],
+    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi|dcc fee|service fee|annual fee/],
     ["Health", /hospital|pharmacy|medical|apollo|doctor|clinic|medicine/],
-    ["Entertainment", /netflix|spotify|hotstar|cinema|bookmyshow|gaming/],
+    ["Entertainment", /xsolla|steam|playstation|netflix|spotify|hotstar|cinema|bookmyshow|gaming|game/],
+    ["Taxes", /\bigst\b|\bgst\b|\btax\b/],
   ];
   return rules.find(([, pattern]) => pattern.test(text))?.[0] || "Uncategorised";
 }

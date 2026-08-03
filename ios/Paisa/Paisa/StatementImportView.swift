@@ -197,6 +197,7 @@ struct StatementRow: Identifiable {
     let timeVerified: Bool
     let merchant: String
     let amount: Double
+    let category: String
     var accountTag: String
     let sourceFile: String
     let sourceKind: String
@@ -300,7 +301,7 @@ enum StatementDocumentParser {
             let type = value(typeColumn).lowercased()
             let hasCreditOnly = debit == nil && creditColumn != nil && parseAmount(value(creditColumn)) != nil
             guard !merchant.isEmpty, let amount, amount > 0, !hasCreditOnly, !type.contains("cr"), !type.contains("credit") else { continue }
-            parsed.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: merchant, amount: amount, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: value(referenceColumn)))
+            parsed.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: merchant, amount: amount, category: inferCategory(merchant), accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: value(referenceColumn)))
         }
         return StatementParseResult(rows: parsed, accountTag: accountTag)
     }
@@ -341,7 +342,7 @@ enum StatementDocumentParser {
             else { reference = "" }
             let key = "\(Calendar.current.startOfDay(for: date.date).timeIntervalSince1970)|\(selected.value)|\(reference.lowercased())|\(merchant.lowercased())"
             guard seen.insert(key).inserted else { continue }
-            output.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: String(merchant.prefix(160)), amount: selected.value, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
+            output.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: String(merchant.prefix(160)), amount: selected.value, category: inferCategory(merchant), accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
         }
         return output
     }
@@ -446,6 +447,21 @@ enum StatementDocumentParser {
             .trimmingCharacters(in: CharacterSet(charactersIn: " |:/-"))
     }
 
+    private static func inferCategory(_ value: String) -> String {
+        let text = value.lowercased()
+        let rules: [(String, String)] = [
+            ("Food & dining", "zomato|swiggy|restaurant|cafe|coffee|domino|pizza|burger|kitchen"),
+            ("Groceries", "blinkit|zepto|bigbasket|instamart|grocery|supermarket"),
+            ("Travel", "uber|ola|rapido|metro|railway|irctc|airlines|flight|petrol|diesel|fuel|indian oil|parking|toll"),
+            ("Shopping", "amazon|flipkart|myntra|ajio|retail|store"),
+            ("Bills", "electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi|dcc fee|service fee|annual fee"),
+            ("Health", "hospital|pharmacy|medical|apollo|doctor|clinic|medicine"),
+            ("Entertainment", "xsolla|steam|playstation|netflix|spotify|hotstar|cinema|bookmyshow|gaming|game"),
+            ("Taxes", "\\bigst\\b|\\bgst\\b|\\btax\\b")
+        ]
+        return rules.first(where: { text.range(of: $0.1, options: .regularExpression) != nil })?.0 ?? "Uncategorised"
+    }
+
     private static func sourceKind(filename: String, accountTag: String) -> String {
         let value = "\(filename) \(accountTag)".lowercased()
         if value.contains("paytm") { return filename.lowercased().hasSuffix(".pdf") ? "paytm_pdf" : "paytm_csv" }
@@ -484,7 +500,7 @@ enum StatementTransactionMerger {
                 continue
             }
             let noteParts = [row.reference.isEmpty ? nil : "Reference: \(row.reference)", "Imported from \(row.sourceFile)"].compactMap { $0 }
-            let transaction = PaisaTransaction(merchant: row.merchant, amount: row.amount, occurredAt: row.date, timeVerified: row.timeVerified, note: noteParts.joined(separator: " · "), source: row.sourceKind, accountTag: row.accountTag)
+            let transaction = PaisaTransaction(merchant: row.merchant, amount: row.amount, occurredAt: row.date, timeVerified: row.timeVerified, category: row.category, note: noteParts.joined(separator: " · "), source: row.sourceKind, accountTag: row.accountTag)
             context.insert(transaction); candidates.append(transaction); inserted += 1
         }
         return Summary(inserted: inserted, verified: verified, skipped: skipped)
