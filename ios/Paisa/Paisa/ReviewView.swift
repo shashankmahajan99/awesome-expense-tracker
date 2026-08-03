@@ -46,6 +46,8 @@ struct ReviewView: View {
     @State private var isSaving = false
     @State private var showBatch = false
     @State private var batchMessage = ""
+    @State private var cardOffset: CGSize = .zero
+    @State private var history: [ReviewSnapshot] = []
     @StateObject private var speech = SpeechInput()
     private var remaining: [PaisaTransaction] { transactions.filter { !$0.isDeleted && $0.reviewStatus == "unresolved" } }
     private var current: PaisaTransaction? { remaining.first }
@@ -66,12 +68,20 @@ struct ReviewView: View {
                     Text(PaisaFormat.amount(item.amount)).font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(PaisaTheme.ink)
                     Text(item.merchant).font(.title2.bold()).foregroundStyle(PaisaTheme.ink)
                     Text([item.accountTag, PaisaFormat.transactionDate(item.occurredAt, timeVerified: item.timeVerified)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
+                    HStack { Label("Later", systemImage: "arrow.left").foregroundStyle(.orange).opacity(cardOffset.width < -30 ? 1 : 0.35); Spacer(); Label("Understood", systemImage: "arrow.right").foregroundStyle(PaisaTheme.forest).opacity(cardOffset.width > 30 ? 1 : 0.35) }.font(.caption.bold()).padding(.top, 16)
                 }
+                .offset(x: cardOffset.width).rotationEffect(.degrees(Double(cardOffset.width / 28)))
+                .gesture(DragGesture().onChanged { cardOffset = $0.translation }.onEnded { value in
+                    if value.translation.width > 110 { Task { await swipe(item, status: "explained") } }
+                    else if value.translation.width < -110 { Task { await swipe(item, status: "deferred") } }
+                    else { withAnimation(.spring) { cardOffset = .zero } }
+                })
                 VStack(alignment: .leading, spacing: 8) {
                     Text("What was this payment for?").font(.headline).foregroundStyle(PaisaTheme.ink)
                     HStack { TextField("Type context", text: $speech.text, axis: .vertical).textFieldStyle(.roundedBorder); if speech.listening { ProgressView() } }
                     LabeledContent("Category") { PaisaCategoryField(category: $category, suggestions: PaisaCategories.suggestions(from: allTransactions)) }
                         .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(PaisaCategories.defaults.prefix(7), id: \.self) { value in Button(value) { category = value }.buttonStyle(.bordered).tint(category == value ? PaisaTheme.forest : PaisaTheme.muted).controlSize(.small) } } }
                 }
                 Button { Task { await speech.toggle() } } label: {
                     HStack { Image(systemName: speech.listening ? "stop.fill" : "mic.fill"); Text(speech.listening ? "Stop speaking" : "Speak instead"); Spacer(); if speech.listening { ProgressView().tint(.white) } }
@@ -80,10 +90,13 @@ struct ReviewView: View {
                 Button { Task { await save(item, status: "explained") } } label: {
                     HStack { Spacer(); if isSaving { ProgressView().tint(PaisaTheme.forest) } else { Text("Save & review next"); Image(systemName: "arrow.right") }; Spacer() }
                         .frame(height: 50).background(PaisaTheme.gold, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(PaisaTheme.forest).fontWeight(.bold)
-                }.buttonStyle(.plain).disabled(isSaving || speech.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.buttonStyle(.plain).disabled(isSaving)
                 HStack {
-                    Button("Known / repeat") { Task { await save(item, status: "known") } }
-                    Button("Skip for now") { Task { await save(item, status: "deferred") } }
+                    Button { Task { await swipe(item, status: "deferred") } } label: { Label("Later", systemImage: "arrow.left") }
+                    Spacer()
+                    Button { Task { await swipe(item, status: "known") } } label: { Label("Known", systemImage: "repeat") }
+                    Spacer()
+                    Button { Task { await swipe(item, status: "explained") } } label: { Label("Understood", systemImage: "arrow.right") }
                 }.buttonStyle(.bordered).disabled(isSaving)
                 Button { speech.stop(); showBatch = true } label: { Label("Explain several together", systemImage: "text.badge.checkmark") }.fontWeight(.semibold).padding(.top, 4)
                 if !batchMessage.isEmpty { Text(batchMessage).font(.caption).foregroundStyle(PaisaTheme.forest).multilineTextAlignment(.center) }
@@ -95,7 +108,10 @@ struct ReviewView: View {
         }
         .background(PaisaTheme.canvas.ignoresSafeArea())
         .navigationTitle("Daily review").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Dashboard") { speech.stop(); dismiss() } } }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Dashboard") { speech.stop(); dismiss() } }
+            ToolbarItem(placement: .topBarTrailing) { Button { restorePrevious() } label: { Image(systemName: "arrow.uturn.backward") }.disabled(history.isEmpty || isSaving).accessibilityLabel("Previous payment") }
+        }
         .sheet(isPresented: $showBatch) { NavigationStack { MobileBatchReviewView(transactions: remaining) { count in batchMessage = "Explained \(count) payment\(count == 1 ? "" : "s")." } } }
         .onAppear { prepareCurrent() }
         .onChange(of: current?.id) { _, _ in prepareCurrent() }
@@ -103,17 +119,31 @@ struct ReviewView: View {
     }
 
     private func prepareCurrent() {
-        speech.stop(); speech.text = ""
+        speech.stop(); speech.text = ""; cardOffset = .zero
         category = current?.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame ? "" : (current?.category ?? "")
     }
 
     private func save(_ item: PaisaTransaction, status: String) async {
         guard !isSaving else { return }; isSaving = true; speech.stop()
+        history.append(ReviewSnapshot(item: item))
         if !speech.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { item.note = speech.text.trimmingCharacters(in: .whitespacesAndNewlines) }
         item.category = PaisaCategories.savedValue(category); item.reviewStatus = status; item.updatedAt = .now
         try? context.save(); await sync.syncIfConnected(context: context); isSaving = false
     }
+
+    private func swipe(_ item: PaisaTransaction, status: String) async {
+        withAnimation(.easeIn(duration: 0.18)) { cardOffset.width = status == "deferred" ? -520 : 520 }
+        try? await Task.sleep(for: .milliseconds(180)); await save(item, status: status)
+    }
+
+    private func restorePrevious() {
+        guard let snapshot = history.popLast(), let item = allTransactions.first(where: { $0.id == snapshot.id }) else { return }
+        item.reviewStatus = snapshot.status; item.category = snapshot.category; item.note = snapshot.note; item.updatedAt = .now
+        try? context.save(); Task { await sync.syncIfConnected(context: context) }
+    }
 }
+
+private struct ReviewSnapshot { let id: UUID; let status: String; let category: String; let note: String; init(item: PaisaTransaction) { id = item.id; status = item.reviewStatus; category = item.category; note = item.note } }
 
 private struct MobileBatchDecision { let transaction: PaisaTransaction; let category: String? }
 
@@ -172,11 +202,13 @@ private struct MobileBatchReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
+    @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var allTransactions: [PaisaTransaction]
     let transactions: [PaisaTransaction]
     let onApplied: (Int) -> Void
     @StateObject private var speech = SpeechInput()
     @State private var matching = false
     @State private var result = ""
+    @State private var category = ""
 
     var body: some View {
         ScrollView {
@@ -186,6 +218,11 @@ private struct MobileBatchReviewView: View {
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $speech.text).frame(minHeight: 140).padding(8).scrollContentBackground(.hidden).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                     if speech.text.isEmpty { Text("Explain several payments in one sentence…").foregroundStyle(PaisaTheme.muted).padding(16).allowsHitTesting(false) }
+                }
+                PaisaCard {
+                    Text("Apply a category").font(.caption.bold()).foregroundStyle(PaisaTheme.muted)
+                    PaisaCategoryField(category: $category, suggestions: PaisaCategories.suggestions(from: allTransactions)).padding(.top, 10)
+                    Text("Optional — leave blank to infer categories from your sentence.").font(.caption2).foregroundStyle(PaisaTheme.muted).padding(.top, 6)
                 }
                 Button { Task { await speech.toggle() } } label: { HStack { Image(systemName: speech.listening ? "stop.fill" : "mic.fill"); Text(speech.listening ? "Stop speaking" : "Speak instead"); Spacer(); if speech.listening { ProgressView() } } }.buttonStyle(.bordered).disabled(matching)
                 Button { Task { await apply() } } label: { HStack { Spacer(); if matching { ProgressView().tint(PaisaTheme.forest) } else { Text("Match & explain"); Image(systemName: "sparkles") }; Spacer() }.frame(height: 48).background(PaisaTheme.gold, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(PaisaTheme.forest).fontWeight(.bold) }.buttonStyle(.plain).disabled(matching || speech.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -201,7 +238,8 @@ private struct MobileBatchReviewView: View {
         guard !matching else { return }; matching = true; speech.stop()
         let text = speech.text.trimmingCharacters(in: .whitespacesAndNewlines); let decisions = MobileBatchMatcher.decisions(text: text, transactions: transactions)
         guard !decisions.isEmpty else { result = "No confident matches. Try a category, ₹450, or under ₹1,000."; matching = false; return }
-        for decision in decisions { decision.transaction.note = text; if let category = decision.category { decision.transaction.category = category }; decision.transaction.reviewStatus = "explained"; decision.transaction.updatedAt = .now }
+        let explicitCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        for decision in decisions { decision.transaction.note = text; if !explicitCategory.isEmpty { decision.transaction.category = explicitCategory } else if let category = decision.category { decision.transaction.category = category }; decision.transaction.reviewStatus = "explained"; decision.transaction.updatedAt = .now }
         try? context.save(); await sync.syncIfConnected(context: context); onApplied(decisions.count); matching = false; dismiss()
     }
 }

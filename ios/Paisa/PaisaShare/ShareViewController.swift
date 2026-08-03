@@ -22,7 +22,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
     private func configureUI() {
         view.backgroundColor = UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1)
-        navigationItem.title = "Save to Paisa"
+        navigationItem.title = "Save to Paisa Inbox"
 
         let header = UILabel()
         header.text = "Add payment"
@@ -30,7 +30,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         header.textColor = .paisaInk
 
         let subtitle = UILabel()
-        subtitle.text = "Check what Paisa found, then save it to your daily inbox."
+        subtitle.text = "Check what Paisa Inbox found, then save it to your daily inbox."
         subtitle.font = .systemFont(ofSize: 15)
         subtitle.textColor = .paisaMuted
         subtitle.numberOfLines = 0
@@ -96,8 +96,9 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
     @MainActor
     private func loadSharedContent() async {
-        let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
-        var textParts: [String] = []
+        let inputItems = extensionContext?.inputItems as? [NSExtensionItem] ?? []
+        let providers = inputItems.flatMap { $0.attachments ?? [] }
+        var textParts = inputItems.flatMap { item in [item.attributedTitle?.string, item.attributedContentText?.string].compactMap { $0 } }
 
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
@@ -110,6 +111,9 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
             } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
                       let text = await loadString(from: provider, type: .url) {
                 textParts.append(text)
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.html.identifier),
+                      let text = await loadString(from: provider, type: .html) {
+                textParts.append(text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression))
             }
         }
 
@@ -188,10 +192,9 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         do {
             try SharedInbox.save(receipt)
             saveButton.isEnabled = false
-            saveButton.setTitle("Saved to Paisa ✓", for: .normal)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-                self?.extensionContext?.completeRequest(returningItems: nil)
-            }
+            saveButton.setTitle("Opening Paisa Inbox…", for: .normal)
+            let inboxURL = URL(string: "paisa://inbox")!
+            extensionContext?.open(inboxURL) { [weak self] _ in self?.extensionContext?.completeRequest(returningItems: nil) }
         } catch {
             let alert = UIAlertController(title: "Couldn’t save payment", message: error.localizedDescription, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))

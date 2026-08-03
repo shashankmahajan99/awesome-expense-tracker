@@ -36,6 +36,7 @@ private struct SyncResponse: Decodable {
 private struct MobileSyncPreferences: Decodable { let reviewTime: String }
 
 private struct APIError: Decodable { let error: String }
+private struct ResetResponse: Decodable { let deleted: Int }
 
 @MainActor
 final class SyncManager: ObservableObject {
@@ -43,6 +44,9 @@ final class SyncManager: ObservableObject {
     @Published private(set) var isWorking = false
     @Published private(set) var status = "Stored only on this iPhone"
     @Published private(set) var lastSynced: Date?
+    @Published private(set) var syncCompleted = 0
+    @Published private(set) var syncTotal = 0
+    @Published private(set) var syncCancellationRequested = false
     @Published private(set) var reviewHour = 21
     @Published private(set) var reviewMinute = 30
 
@@ -68,7 +72,7 @@ final class SyncManager: ObservableObject {
 
     func beginPairing() async {
         guard !isWorking else { return }
-        isWorking = true; status = "Opening secure sign-in in Safari…"
+        syncTotal = 0; syncCompleted = 0; isWorking = true; status = "Opening secure sign-in in Safari…"
         defer { isWorking = false }
         let state = UUID().uuidString
         UserDefaults.standard.set(state, forKey: pendingStateKey)
@@ -115,8 +119,30 @@ final class SyncManager: ObservableObject {
 
     func syncIfConnected(context: ModelContext) async {
         guard connected, !isWorking else { return }
-        isWorking = true; defer { isWorking = false }
+        isWorking = true; syncCancellationRequested = false; defer { isWorking = false; syncCancellationRequested = false }
         do { try await sync(context: context) } catch { status = error.localizedDescription }
+    }
+
+    func stopSync() {
+        guard isWorking, syncTotal > 0 else { return }
+        syncCancellationRequested = true
+        status = "Stopping sync after the current batch…"
+    }
+
+    func deleteLocalTransactions(context: ModelContext) throws -> Int {
+        let items = try context.fetch(FetchDescriptor<PaisaTransaction>())
+        items.forEach(context.delete); try context.save()
+        status = connected ? "Local data cleared — cloud data is unchanged" : "All data removed from this iPhone"
+        return items.count
+    }
+
+    func deleteCloudTransactions(context: ModelContext) async throws -> Int {
+        guard connected else { throw SyncFailure.message("Connect this iPhone before deleting cloud data") }
+        syncTotal = 0; syncCompleted = 0; isWorking = true; defer { isWorking = false }
+        let response: ResetResponse = try await request("/api/mobile/transactions", method: "DELETE", body: Optional<String>.none, authenticated: true)
+        _ = try deleteLocalTransactions(context: context)
+        status = "Deleted \(response.deleted) cloud transaction\(response.deleted == 1 ? "" : "s")"
+        return response.deleted
     }
 
     func importSharedReceipts(context: ModelContext) {
@@ -176,7 +202,7 @@ final class SyncManager: ObservableObject {
 
     func disconnect() async {
         guard connected else { return }
-        isWorking = true; defer { isWorking = false }
+        syncTotal = 0; syncCompleted = 0; isWorking = true; defer { isWorking = false }
         await unregisterPushToken(NotificationManager.shared.deviceToken)
         do { let _: [String: Bool] = try await request("/api/mobile/session", method: "DELETE", body: Optional<String>.none, authenticated: true) } catch { }
         Self.deleteKeychain(service: tokenService, account: tokenAccount)
@@ -189,10 +215,21 @@ final class SyncManager: ObservableObject {
         let payload = local.map { item in
             SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), timeVerified: item.timeVerified, category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
         }
-        let response: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: ["transactions": payload], authenticated: true)
+        syncCompleted = 0; syncTotal = payload.count
+        let chunks = payload.isEmpty ? [[]] : stride(from: 0, to: payload.count, by: 200).map { Array(payload[$0..<min($0 + 200, payload.count)]) }
+        var response: SyncResponse?
+        var aliases: [String: String] = [:]
+        for chunk in chunks {
+            if syncCancellationRequested { status = "Sync stopped — \(syncCompleted) synced, \(max(0, syncTotal - syncCompleted)) left"; return }
+            status = syncTotal > 0 ? "Syncing \(syncCompleted) of \(syncTotal)…" : "Checking the cloud inbox…"
+            let result: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: ["transactions": chunk], authenticated: true)
+            response = result; result.aliases.forEach { aliases[$0.key] = $0.value }
+            syncCompleted = min(syncTotal, syncCompleted + chunk.count)
+        }
+        guard let response else { return }
         var byID = Dictionary(uniqueKeysWithValues: local.map { ($0.id.uuidString.lowercased(), $0) })
 
-        for (localID, _) in response.aliases {
+        for (localID, _) in aliases {
             if let item = byID.removeValue(forKey: localID.lowercased()) { context.delete(item) }
         }
         for remote in response.transactions {
@@ -216,6 +253,7 @@ final class SyncManager: ObservableObject {
         }
         lastSynced = Date()
         let visibleCount = response.transactions.count
+        if syncTotal == 0 { syncTotal = visibleCount; syncCompleted = visibleCount }
         status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions") just now"
     }
 
@@ -236,7 +274,7 @@ final class SyncManager: ObservableObject {
             if statusCode == 401, apiMessage == nil {
                 message = "Secure site access expired. Connect with ChatGPT again."
             } else {
-                message = apiMessage ?? "Paisa could not sync right now"
+                message = apiMessage ?? "Paisa Inbox could not sync right now"
             }
             if statusCode == 401 {
                 connected = false

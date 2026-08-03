@@ -68,6 +68,6 @@ private enum SharedInboxError: LocalizedError {
     case containerUnavailable
 
     var errorDescription: String? {
-        "Paisa could not access its shared inbox. Reinstall the app and try again."
+        "Paisa Inbox could not access its shared inbox. Reinstall the app and try again."
     }
 }

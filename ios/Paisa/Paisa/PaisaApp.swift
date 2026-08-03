@@ -41,6 +41,7 @@ struct RootView: View {
         .onOpenURL { url in
             guard url.scheme == "paisa" else { return }
             if url.host == "settings" { selectedTab = .settings }
+            if url.host == "inbox" { selectedTab = .today; Task { await importSharesAndSync() } }
             if url.host == "sync-auth" {
                 selectedTab = .settings
                 Task { await sync.completePairing(callback: url, context: context) }

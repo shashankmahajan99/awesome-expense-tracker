@@ -1,0 +1,15 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
+---
+<!doctype html><html lang="en"><head><BaseHead title="Import — Paisa Inbox" description="Import bank, card, Paytm, and wallet statements." /></head><body>
+<div class="app-shell"><AppSidebar active="transactions" /><main><AppTopbar title="Import statements" subtitle="PDF AND CSV, TOGETHER" action="none" />
+<section class="workspace-page"><div class="page-intro"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa Inbox.</h2><p>Select bank, card, and Paytm statements together. Matching entries are verified instead of counted twice.</p></div><a class="secondary-button" href="/transactions">← Transactions</a></div>
+<section class="panel import-page-panel"><label class="file-drop"><input id="statement-file" type="file" accept=".csv,.pdf,text/csv,application/pdf" multiple /><span>⇧</span><strong>Choose PDFs or CSVs</strong><small>Multiple files supported · up to 20 MB each · parsed locally</small></label>
+<div class="import-loading" id="import-loading" hidden><i></i><span><strong id="import-progress-title">Preparing statements…</strong><small id="import-progress-detail">Reading file metadata</small><b><em id="import-progress-bar"></em></b></span></div>
+<div class="import-files" id="import-files" hidden aria-live="polite"></div><div class="import-preview" id="import-preview" hidden><div><strong id="import-count">0 transactions ready</strong><small id="import-filename"></small></div><button type="button" id="clear-import">Remove all</button></div>
+<div class="preference-note"><span>♢</span><p><strong>Your raw statement is never uploaded or stored.</strong><small>Extraction happens locally. Only parsed transaction rows are sent after you confirm.</small></p></div>
+<div class="sheet-actions"><a class="secondary-button" href="/transactions">Cancel</a><button class="primary-button" type="button" id="import-submit" disabled>Import securely</button></div></section></section>
+<footer><span>Paisa Inbox keeps imports private and reviewable.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></main></div>
+<div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Imported</strong><small>Your transactions are ready</small></p></div><script is:inline src="/statement-import.js?v=1"></script></body></html>

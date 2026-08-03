@@ -8,7 +8,7 @@ import DateWindow from "../components/DateWindow.astro";
 <!doctype html>
 <html lang="en">
   <head>
-    <BaseHead title="Paisa — Your daily financial inbox" description="Understand what changed financially today, in two minutes." />
+    <BaseHead title="Paisa Inbox — Your daily financial inbox" description="Understand what changed financially today, in two minutes." />
   </head>
   <body>
     <div class="app-shell">
@@ -60,7 +60,7 @@ import DateWindow from "../components/DateWindow.astro";
           <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list" id="dashboard-categories" aria-busy="true">{[1,2,3,4].map(() => <div class="category skeleton-category"><div><span class="skeleton-dot"></span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></div><div class="track"><i></i></div></div>)}</div></article>
           <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3 id="focus-title"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></h3><p id="focus-detail"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></p><a href="/insights">Explore insights →</a></article>
         </section>
-        <footer><span>Paisa understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
+        <footer><span>Paisa Inbox understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
       </main>
     </div>
 
@@ -74,7 +74,8 @@ import DateWindow from "../components/DateWindow.astro";
           <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
           <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and review next payment"><span>✓</span></button></label>
           <label class="review-category"><span>Category</span><select id="review-category"></select><input id="review-category-custom" type="text" placeholder="Type a new category" hidden /></label>
-          <div class="quick-actions"><button type="button" data-action="known">Known / repeat</button><button type="button" data-action="group">Group with another</button><button type="button" data-action="skip">Skip for now</button></div>
+          <div class="category-chips" id="review-category-chips" aria-label="Quick categories"></div>
+          <div class="quick-actions"><button type="button" data-action="known">Save category & mark known</button><button type="button" data-action="group">Explain together</button><button type="button" data-action="defer">Review later</button></div>
         </div>
         <p class="keyboard-hint">Press <kbd>Enter</kbd> to save · <kbd>S</kbd> to skip · <kbd>Esc</kbd> to close</p>
       </div>
@@ -82,9 +83,10 @@ import DateWindow from "../components/DateWindow.astro";
 
     <dialog class="sheet-dialog batch-dialog" id="batch-dialog">
       <div class="sheet-top"><div><span class="eyebrow">BATCH EXPLANATION</span><h2>Explain several payments at once.</h2></div><button type="button" data-close-batch aria-label="Close batch explanation">×</button></div>
-      <p class="sheet-intro">Describe them naturally using merchant clues, categories, or amounts. Paisa will group and categorise matches while leaving uncertain payments untouched.</p>
+      <p class="sheet-intro">Describe them naturally using merchant clues, categories, or amounts. Paisa Inbox will group and categorise matches while leaving uncertain payments untouched.</p>
       <div class="batch-example"><span>✦</span><p>“The petrol and toll were travel. ₹450 and ₹720 were groceries.”</p></div>
       <label class="batch-field listening-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea><i class="field-loader" aria-label="Listening" hidden></i></label>
+      <label class="batch-category"><span>Apply category <small>(optional)</small></span><select id="batch-category"><option value="">Infer from what I wrote</option></select></label>
       <div class="batch-list" id="batch-list" aria-label="Payments available to match"></div>
       <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice" data-voice-label>● Speak instead</button><button class="primary-button" type="button" id="batch-submit"><span>Match & explain →</span></button></div>
       <div class="batch-result" id="batch-result" hidden><span>✓</span><p><strong>Explanation applied</strong><small id="batch-result-text"></small></p></div>
@@ -92,7 +94,7 @@ import DateWindow from "../components/DateWindow.astro";
 
     <dialog class="sheet-dialog preferences-dialog" id="preferences-dialog">
       <div class="sheet-top"><div><span class="eyebrow">REMINDER PREFERENCES</span><h2>Make reminders feel right.</h2></div><button type="button" data-close-preferences aria-label="Close preferences">×</button></div>
-      <p class="sheet-intro">Paisa sends at most one useful reminder a day, and stays quiet when everything is already understood.</p>
+      <p class="sheet-intro">Paisa Inbox sends at most one useful reminder a day, and stays quiet when everything is already understood.</p>
       <form id="preferences-form">
         <fieldset class="personality-options"><legend>Reminder personality</legend>
           <label><input type="radio" name="personality" value="Gentle" /><span><strong>Gentle</strong><small>Only when unresolved spending exceeds ₹2,000.</small></span></label>
@@ -126,8 +128,8 @@ import DateWindow from "../components/DateWindow.astro";
     </dialog>
 
     <dialog class="sheet-dialog import-dialog" id="import-dialog">
-      <div class="sheet-top"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa.</h2></div><button type="button" data-close-import aria-label="Close import">×</button></div>
-      <p class="sheet-intro">Select bank, card, and Paytm statements together. Paisa verifies matching entries across sources instead of counting the same payment twice.</p>
+      <div class="sheet-top"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa Inbox.</h2></div><button type="button" data-close-import aria-label="Close import">×</button></div>
+      <p class="sheet-intro">Select bank, card, and Paytm statements together. Paisa Inbox verifies matching entries across sources instead of counting the same payment twice.</p>
       <label class="file-drop" id="file-drop"><input id="statement-file" type="file" accept=".csv,.pdf,text/csv,application/pdf" multiple /><span>⇧</span><strong>Choose PDFs or CSVs</strong><small>Multiple files supported · up to 20 MB each · parsed locally</small></label>
       <div class="import-loading" id="import-loading" hidden><i></i><span><strong id="import-progress-title">Preparing statements…</strong><small id="import-progress-detail">Reading file metadata</small><b><em id="import-progress-bar"></em></b></span></div>
       <div class="import-files" id="import-files" hidden aria-live="polite"></div>

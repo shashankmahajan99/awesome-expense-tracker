@@ -97,6 +97,7 @@ function renderReview() {
 function populateReviewCategories(selected = "Uncategorised") {
   const select = $("#review-category"); const categories = [...new Set([...defaultCategories, ...items.map((item) => item.category).filter(Boolean), selected].filter(Boolean))].sort();
   select.replaceChildren(...categories.map((value) => new Option(value, value)), new Option("Add a new category…", "__custom")); select.value = categories.includes(selected) ? selected : "Uncategorised"; $("#review-category-custom").hidden = true;
+  const chips = $("#review-category-chips"); chips?.replaceChildren(...defaultCategories.slice(0, 7).map((value) => { const button = document.createElement("button"); button.type = "button"; button.textContent = value; button.classList.toggle("active", value === selected); button.addEventListener("click", () => { select.value = value; $("#review-category-custom").hidden = true; chips.querySelectorAll("button").forEach((node) => node.classList.toggle("active", node === button)); }); return button; }));
 }
 
 function reviewCategory() { const selected = $("#review-category").value; return selected === "__custom" ? $("#review-category-custom").value.trim() || "Uncategorised" : selected || "Uncategorised"; }
@@ -109,7 +110,7 @@ function openReview(id) {
 async function resolveCurrent(action, message, context = "") {
   const item = items[current];
   if (!item || reviewSaving) return;
-  reviewSaving = true; const button = action === "explain" ? $("#submit-answer") : $(`[data-action="${action === "defer" ? "skip" : action}"]`); setButtonLoading(button, true);
+  reviewSaving = true; const button = action === "explain" ? $("#submit-answer") : $(`[data-action="${action}"]`); setButtonLoading(button, true);
   try {
     const category = reviewCategory(); await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
     items.splice(current, 1); reviewedCount++; syncQueue();
@@ -184,7 +185,7 @@ function renderDashboardInsights(insights) {
   const noteTitle = document.createElement("strong"); noteTitle.textContent = topCategory ? `${topCategory.name} is your largest category.` : "Your insights are ready when you are.";
   const noteDetail = document.createElement("small"); noteDetail.textContent = topCategory ? `${formatter.format(topCategory.amountPaise / 100)} across ${topCategory.count} payment${topCategory.count === 1 ? "" : "s"}.` : "Import a bank statement or add a payment."; note.append(noteTitle, document.createElement("br"), noteDetail); $("#snapshot-note").append(sparkle, note);
   $("#focus-title").textContent = topCategory ? `${topCategory.name} accounts for ${formatter.format(topCategory.amountPaise / 100)}.` : "Add transactions to see what changed.";
-  $("#focus-detail").textContent = topCategory ? `${topCategory.count} payment${topCategory.count === 1 ? "" : "s"} make it your largest tracked category.` : "Paisa will turn your imported statement into a clear daily inbox.";
+  $("#focus-detail").textContent = topCategory ? `${topCategory.count} payment${topCategory.count === 1 ? "" : "s"} make it your largest tracked category.` : "Paisa Inbox will turn your imported statement into a clear daily inbox.";
 }
 
 function populatePreferences(value) {
@@ -338,24 +339,25 @@ async function loadDashboard() {
 
 $$('[data-open-review]').forEach((button) => button.addEventListener("click", () => openReview()));
 $$('[data-close-review]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.review.close(); }));
-$("#submit-answer")?.addEventListener("click", () => $("#answer-input").value.trim() && resolveCurrent("explain", "Context saved", $("#answer-input").value.trim()));
-$("#answer-input")?.addEventListener("keydown", (event) => { if (event.key === "Enter" && event.currentTarget.value.trim()) resolveCurrent("explain", "Context saved", event.currentTarget.value.trim()); });
+$("#submit-answer")?.addEventListener("click", () => resolveCurrent("explain", "Review saved", $("#answer-input").value.trim()));
+$("#answer-input")?.addEventListener("keydown", (event) => { if (event.key === "Enter") resolveCurrent("explain", "Review saved", event.currentTarget.value.trim()); });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
-  if (button.dataset.action === "skip") resolveCurrent("defer", "Saved for later");
+  if (button.dataset.action === "defer") resolveCurrent("defer", "Saved for later");
   else if (button.dataset.action === "known") resolveCurrent("known", "Marked as known");
   else { const merchant = items[current]?.merchant || ""; dialogs.review.close(); $("#batch-input").value = `${merchant} was part of `; dialogs.batch.showModal(); $("#batch-input").focus(); }
 }));
 $("#voice-button")?.addEventListener("click", () => startVoice($("#answer-input"), $("#voice-button")));
 $("#review-category")?.addEventListener("change", (event) => { const custom = $("#review-category-custom"); custom.hidden = event.currentTarget.value !== "__custom"; if (!custom.hidden) custom.focus(); });
 
-$$('[data-open-batch]').forEach((button) => button.addEventListener("click", () => { $("#batch-result").hidden = true; $("#batch-input").value = ""; dialogs.batch.showModal(); }));
+function populateBatchCategories() { const select = $("#batch-category"); if (!select) return; const chosen = select.value; const values = [...new Set([...defaultCategories, ...items.map((item) => item.category).filter((value) => value && value !== "Uncategorised")])].sort(); select.replaceChildren(new Option("Infer from what I wrote", ""), ...values.map((value) => new Option(value, value))); select.value = values.includes(chosen) ? chosen : ""; }
+$$('[data-open-batch]').forEach((button) => button.addEventListener("click", () => { $("#batch-result").hidden = true; $("#batch-input").value = ""; populateBatchCategories(); dialogs.batch.showModal(); }));
 $$('[data-close-batch]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.batch.close(); }));
 $("#batch-voice")?.addEventListener("click", () => startVoice($("#batch-input"), $("#batch-voice")));
 $("#batch-submit")?.addEventListener("click", async () => {
   const text = $("#batch-input").value.trim(); if (!text) return $("#batch-input").focus(); if (batchMatching) return;
   batchMatching = true; setButtonLoading($("#batch-submit"), true); $("#batch-input").disabled = true;
   try {
-    const result = await api("/api/reviews/batch", { method: "POST", body: JSON.stringify({ text }) });
+    const result = await api("/api/reviews/batch", { method: "POST", body: JSON.stringify({ text, category: $("#batch-category")?.value || "" }) });
     const matched = new Set(result.matched.map(String)); const matchedItems = items.filter((item) => matched.has(item.id));
     matchedItems.forEach((item) => { if (result.categories?.[item.id]) item.category = result.categories[item.id]; });
     items = items.filter((item) => !matched.has(item.id)); reviewedCount += matchedItems.length; syncQueue(); $("#batch-result").hidden = false;
@@ -387,8 +389,8 @@ $("#confirm-reset")?.addEventListener("click", async () => {
   finally { button.disabled = false; button.textContent = "Clear transactions"; }
 });
 $("#delete-account")?.addEventListener("click", async () => {
-  if (!window.confirm("Permanently delete all Paisa transactions, reviews, preferences, and audit data for this account? This cannot be undone.")) return;
-  try { await api("/api/account", { method: "DELETE" }); dialogs.preferences.close(); items = []; syncQueue(); showToast("Account data deleted", "Your Paisa records have been permanently removed"); }
+  if (!window.confirm("Permanently delete all Paisa Inbox transactions, reviews, preferences, and audit data for this account? This cannot be undone.")) return;
+  try { await api("/api/account", { method: "DELETE" }); dialogs.preferences.close(); items = []; syncQueue(); showToast("Account data deleted", "Your Paisa Inbox records have been permanently removed"); }
   catch (error) { showToast("Deletion failed", error.message); }
 });
 
@@ -429,8 +431,8 @@ $$('[data-close-completion]').forEach((button) => button.addEventListener("click
 $(".menu-button")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
 Object.values(dialogs).filter(Boolean).forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target === dialog) { stopVoice(); dialog.close(); } }));
 const params = new URLSearchParams(location.search);
+if (["preferences", "import", "review"].some((key) => params.has(key))) history.replaceState({}, "", `${location.pathname}${location.hash}`);
 if (params.has("preferences")) setTimeout(() => { populatePreferences(preferences); dialogs.preferences?.showModal(); }, 400);
 if (params.has("import")) dialogs.import?.showModal();
 if (params.has("review")) setTimeout(() => openReview(params.get("review")), 400);
-document.addEventListener("keydown", (event) => { if (dialogs.review?.open && event.key.toLowerCase() === "s" && document.activeElement !== $("#answer-input")) { event.preventDefault(); resolveCurrent("defer", "Saved for later"); } });
 window.PaisaDateWindow.setup($("#dashboard-date-window"), () => loadDashboard());

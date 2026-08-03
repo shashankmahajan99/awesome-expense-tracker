@@ -34,7 +34,7 @@ struct DashboardView: View {
         .background(PaisaTheme.canvas.ignoresSafeArea())
         .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .navigationTitle("Paisa")
+        .navigationTitle("Paisa Inbox")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {

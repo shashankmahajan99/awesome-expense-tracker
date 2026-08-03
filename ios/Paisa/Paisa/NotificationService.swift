@@ -13,6 +13,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @Published private(set) var isEnabledForPaisa = UserDefaults.standard.bool(forKey: "paisa.notifications-enabled")
     @Published private(set) var deviceToken = UserDefaults.standard.string(forKey: "paisa.push-device-token")
+    @Published private(set) var isUpdating = false
     private var remotePushEnabled: Bool { Bundle.main.object(forInfoDictionaryKey: "PaisaRemotePushEnabled") as? Bool == true }
 
     var statusText: String {
@@ -35,6 +36,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     }
 
     func requestAuthorization() async {
+        guard !isUpdating else { return }; isUpdating = true; defer { isUpdating = false }
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
             authorizationStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
@@ -56,7 +58,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         center.removePendingNotificationRequests(withIdentifiers: ["paisa.daily-inbox"])
         guard isEnabledForPaisa, unresolvedCount > 0, [.authorized, .provisional, .ephemeral].contains(authorizationStatus) else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Your Paisa inbox is ready"
+        content.title = "Your Paisa Inbox is ready"
         content.body = unresolvedCount == 1
             ? "One payment needs a little context."
             : "\(unresolvedCount) payments worth \(PaisaFormat.amount(unresolvedAmount)) need a little context."

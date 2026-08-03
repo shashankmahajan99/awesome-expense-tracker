@@ -3,7 +3,7 @@ interface Props { active?: "overview" | "inbox" | "transactions" | "insights"; }
 const { active = "overview" } = Astro.props;
 ---
 <aside class="sidebar" aria-label="Primary navigation">
-  <a class="brand" href="/" aria-label="Paisa dashboard"><span class="brand-mark">P</span><span>Paisa</span></a>
+  <a class="brand" href="/" aria-label="Paisa Inbox dashboard"><span class="brand-mark">P</span><span>Paisa Inbox</span></a>
   <nav>
     <a class:list={["nav-link", { active: active === "overview" }]} href="/"><span>⌂</span>Dashboard</a>
     <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>

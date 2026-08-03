@@ -349,6 +349,29 @@ async function deleteTransaction(db, user, id) {
   return json({ deleted: true });
 }
 
+async function deleteTransactions(db, user, payload) {
+  const ids = [...new Set((Array.isArray(payload.ids) ? payload.ids : []).map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 500);
+  if (!ids.length) return json({ error: "Select at least one transaction" }, 400);
+  const deletedAt = timestamp(); let deleted = 0;
+  for (const id of ids) {
+    const result = await db.prepare("DELETE FROM transactions WHERE id=? AND user_id=? RETURNING id").bind(id, user.id).first();
+    if (!result) continue;
+    await db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=excluded.deleted_at").bind(user.id, id, deletedAt).run();
+    deleted++;
+  }
+  await audit(db, user.id, "transaction.bulk_deleted", "transaction", null, { deleted });
+  return json({ deleted });
+}
+
+async function setTransactionCategory(db, user, id, payload) {
+  const category = String(payload.category || "").trim().slice(0, 80);
+  if (!category) return json({ error: "Category is required" }, 400);
+  const result = await db.prepare("UPDATE transactions SET category=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(category, id, user.id).run();
+  if (!result.meta?.changes) return json({ error: "Transaction not found" }, 404);
+  await audit(db, user.id, "transaction.categorised", "transaction", id, { category });
+  return json({ id, category });
+}
+
 async function getInsights(db, user, url) {
   const window = dateWindow(url); const predicate = ["user_id=?", ...window.clauses].join(" AND "); const bindings = [user.id, ...window.bindings];
   const [categories, days, status, totals, largest] = await Promise.all([
@@ -395,10 +418,11 @@ async function batchExplain(db, user, payload) {
   const text = String(payload.text || "").trim().slice(0, 2000);
   if (!text) return json({ error: "Explanation is required" }, 400);
   const rows = await db.prepare("SELECT id,merchant,description,amount_paise,category FROM transactions WHERE user_id=? AND review_status='unresolved'").bind(user.id).all();
-  const decisions = explainMatches(text, rows.results);
+  const requestedCategory = String(payload.category || "").trim().slice(0, 80);
+  const decisions = explainMatches(text, rows.results).map((decision) => ({ ...decision, category: requestedCategory || decision.category }));
   if (!decisions.length) return json({ matched: [], unmatched: rows.results.map((row) => row.id), categories: {} });
   const groupId = crypto.randomUUID();
-  await db.prepare("INSERT INTO review_groups (id,user_id,title,context) VALUES (?,?,?,?)").bind(groupId, user.id, text.toLowerCase().includes("gurgaon") ? "Gurgaon trip" : "Batch explanation", text).run();
+  await db.prepare("INSERT INTO review_groups (id,user_id,title,context,category) VALUES (?,?,?,?,?)").bind(groupId, user.id, text.toLowerCase().includes("gurgaon") ? "Gurgaon trip" : "Batch explanation", text, requestedCategory || null).run();
   await db.batch(decisions.map(({ transaction, category }) => db.prepare("UPDATE transactions SET review_status='explained',context=?,category=COALESCE(?,category),group_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(text, category, groupId, transaction.id, user.id)));
   const matchedIds = new Set(decisions.map(({ transaction }) => transaction.id));
   const categories = Object.fromEntries(decisions.filter(({ category }) => category).map(({ transaction, category }) => [transaction.id, category]));
@@ -461,7 +485,7 @@ async function sendAPNs(env, device, summary) {
       "apns-priority": "10",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ aps: { alert: { title: "Your Paisa inbox is ready", body }, sound: "default", badge: summary.count, category: "DAILY_REVIEW" }, route: "review" }),
+    body: JSON.stringify({ aps: { alert: { title: "Your Paisa Inbox is ready", body }, sound: "default", badge: summary.count, category: "DAILY_REVIEW" }, route: "review" }),
   });
   if (response.status === 410 || response.status === 400) {
     const reason = await response.json().catch(() => ({}));
@@ -507,12 +531,13 @@ async function handleApi(request, env, url) {
     if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
     return json(await processReminders(env));
   }
-  if (["/api/mobile/sync", "/api/mobile/session", "/api/mobile/push-token"].includes(url.pathname)) {
+  if (["/api/mobile/sync", "/api/mobile/session", "/api/mobile/push-token", "/api/mobile/transactions"].includes(url.pathname)) {
     const mobileUser = await getMobileUser(request, env.DB); if (!mobileUser) return json({ error: "Mobile authentication required" }, 401);
     if (request.method === "POST" && url.pathname === "/api/mobile/sync") return syncMobile(env.DB, mobileUser, await request.json());
     if (request.method === "POST" && url.pathname === "/api/mobile/push-token") return savePushDevice(env.DB, mobileUser, await request.json());
     if (request.method === "DELETE" && url.pathname === "/api/mobile/push-token") return deletePushDevice(env.DB, mobileUser, await request.json().catch(() => ({})));
     if (request.method === "DELETE" && url.pathname === "/api/mobile/session") { await env.DB.batch([env.DB.prepare("DELETE FROM push_devices WHERE session_id=?").bind(mobileUser.sessionId), env.DB.prepare("UPDATE mobile_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(mobileUser.sessionId)]); return json({ disconnected: true }); }
+    if (request.method === "DELETE" && url.pathname === "/api/mobile/transactions") return resetFinancialData(env.DB, mobileUser);
   }
   const user = getUser(request);
   if (!user) return json({ error: "Authentication required" }, 401);
@@ -524,6 +549,7 @@ async function handleApi(request, env, url) {
   if (request.method === "DELETE" && url.pathname === "/api/transactions") return resetFinancialData(env.DB, user);
   if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
   if (request.method === "POST" && url.pathname === "/api/transactions/import") return importTransactions(env.DB, user, await request.json());
+  if (request.method === "DELETE" && url.pathname === "/api/transactions/batch") return deleteTransactions(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/insights") return getInsights(env.DB, user, url);
   if (request.method === "POST" && url.pathname === "/api/reviews/batch") return batchExplain(env.DB, user, await request.json());
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
@@ -536,6 +562,8 @@ async function handleApi(request, env, url) {
     return json({ deleted: true });
   }
   const transactionMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
+  const categoryMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)\/category$/);
+  if (request.method === "PATCH" && categoryMatch) return setTransactionCategory(env.DB, user, categoryMatch[1], await request.json());
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());
   if (request.method === "PUT" && transactionMatch) return replaceTransaction(env.DB, user, transactionMatch[1], await request.json());
   if (request.method === "DELETE" && transactionMatch) return deleteTransaction(env.DB, user, transactionMatch[1]);

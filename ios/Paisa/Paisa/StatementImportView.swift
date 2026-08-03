@@ -53,7 +53,7 @@ struct StatementImportView: View {
             Text(message).multilineTextAlignment(.center).foregroundStyle(PaisaTheme.muted)
             Button { showPicker = true } label: { Label("Choose PDFs or CSVs", systemImage: "plus") }
                 .buttonStyle(.borderedProminent).tint(PaisaTheme.forest).controlSize(.large)
-            Text("Select bank, card, and Paytm statements in one batch. Paisa verifies matching entries instead of counting them twice.")
+            Text("Select bank, card, and Paytm statements in one batch. Paisa Inbox verifies matching entries instead of counting them twice.")
                 .font(.caption).multilineTextAlignment(.center).foregroundStyle(PaisaTheme.muted)
             Spacer()
         }

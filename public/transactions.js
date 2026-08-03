@@ -9,6 +9,7 @@ let totalPages = 1;
 let loadSequence = 0;
 const pageSize = 25;
 let availableCategories = [...defaultCategories];
+const selectedIDs = new Set();
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -47,11 +48,18 @@ function render(data) {
   for (const item of visible) {
     const row = document.createElement("div"); row.className = "ledger-row"; row.setAttribute("role", "row");
     const merchant = document.createElement("span"); merchant.className = "ledger-merchant";
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedIDs.has(item.id); checkbox.setAttribute("aria-label", `Select ${item.merchant}`);
+    checkbox.addEventListener("click", (event) => event.stopPropagation()); checkbox.addEventListener("change", () => { checkbox.checked ? selectedIDs.add(item.id) : selectedIDs.delete(item.id); updateBulkToolbar(); });
     const icon = document.createElement("i"); icon.textContent = item.merchant.slice(0, 2).toUpperCase();
     const copy = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = item.merchant;
     const date = document.createElement("small"); const dateOptions = item.timeVerified ? { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }; const occurred = new Date(item.occurredAt).toLocaleString("en-IN", dateOptions); date.textContent = item.accountTag ? `${occurred} · ${item.accountTag}` : occurred;
-    copy.append(strong, date); merchant.append(icon, copy);
-    const category = document.createElement("span"); category.textContent = item.category || "Uncategorised";
+    copy.append(strong, date); merchant.append(checkbox, icon, copy);
+    const category = document.createElement("span"); category.className = "quick-category";
+    const categorySelect = document.createElement("select"); categorySelect.setAttribute("aria-label", `Category for ${item.merchant}`);
+    const currentCategory = item.category || "Uncategorised"; const categoryValues = [...new Set(["Uncategorised", ...availableCategories, currentCategory])];
+    categorySelect.replaceChildren(...categoryValues.map((value) => new Option(value, value))); categorySelect.value = currentCategory;
+    categorySelect.addEventListener("change", async () => { const previous = item.category; categorySelect.disabled = true; try { await api(`/api/transactions/${encodeURIComponent(item.id)}/category`, { method: "PATCH", body: JSON.stringify({ category: categorySelect.value }) }); item.category = categorySelect.value; toast("Category updated", `${item.merchant} is now ${item.category}`); } catch (error) { categorySelect.value = previous || "Uncategorised"; toast("Couldn’t update category", error.message); } finally { categorySelect.disabled = false; } });
+    category.append(categorySelect);
     const status = document.createElement("span"); const pill = document.createElement("i"); pill.className = `status-tag ${item.reviewStatus}`; pill.textContent = statusLabel(item.reviewStatus); status.append(pill);
     const amount = document.createElement("strong"); amount.className = "ledger-amount"; amount.textContent = formatter.format(item.amount);
     const actions = document.createElement("span"); actions.className = "row-actions";
@@ -66,6 +74,12 @@ function render(data) {
   $("#ledger-page").textContent = `Page ${currentPage} of ${totalPages}`; $("#ledger-range").textContent = data.total ? `Showing ${start}–${end} of ${data.total}` : "No transactions to show";
   $("#ledger-previous").disabled = currentPage <= 1; $("#ledger-next").disabled = currentPage >= totalPages;
   $("#ledger-pagination").hidden = !visible.length || data.total <= data.pageSize;
+  $("#select-page").checked = visible.length > 0 && visible.every((item) => selectedIDs.has(item.id)); updateBulkToolbar();
+}
+
+function updateBulkToolbar() {
+  $("#selected-count").textContent = String(selectedIDs.size); $("#bulk-toolbar").hidden = !selectedIDs.size;
+  $("#select-page").indeterminate = selectedIDs.size > 0 && !transactions.every((item) => selectedIDs.has(item.id));
 }
 
 function showLedgerLoading() {
@@ -123,6 +137,18 @@ $("#transaction-search").addEventListener("input", () => { clearTimeout(searchTi
 [$("#status-filter"), $("#category-filter")].forEach((input) => input.addEventListener("change", () => { currentPage = 1; load(); }));
 $("#ledger-previous").addEventListener("click", () => { if (currentPage > 1) { currentPage--; load(); } });
 $("#ledger-next").addEventListener("click", () => { if (currentPage < totalPages) { currentPage++; load(); } });
+$("#select-page").addEventListener("change", (event) => {
+  transactions.forEach((item) => event.currentTarget.checked ? selectedIDs.add(item.id) : selectedIDs.delete(item.id));
+  $("#ledger-rows").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => { checkbox.checked = event.currentTarget.checked; }); updateBulkToolbar();
+});
+$("#clear-selection").addEventListener("click", () => { selectedIDs.clear(); transactions.forEach(() => {}); load(); });
+$("#delete-selected").addEventListener("click", async () => {
+  if (!selectedIDs.size || !confirm(`Delete ${selectedIDs.size} selected transaction${selectedIDs.size === 1 ? "" : "s"}?`)) return;
+  const button = $("#delete-selected"); button.disabled = true; button.textContent = "Deleting…";
+  try { const result = await api("/api/transactions/batch", { method: "DELETE", body: JSON.stringify({ ids: [...selectedIDs] }) }); selectedIDs.clear(); toast(`${result.deleted} deleted`, "Dashboard and insights are updated"); await load(); }
+  catch (error) { toast("Couldn’t delete selected transactions", error.message); }
+  finally { button.disabled = false; button.textContent = "Delete selected"; }
+});
 window.PaisaDateWindow.setup($("#transactions-date-window"), () => { currentPage = 1; load(); });
 document.querySelectorAll("[data-add-transaction]").forEach((button) => button.addEventListener("click", () => openEditor()));
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => dialog.close()));

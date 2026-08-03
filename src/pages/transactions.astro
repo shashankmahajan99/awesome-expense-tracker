@@ -6,7 +6,7 @@ import DateWindow from "../components/DateWindow.astro";
 ---
 <!doctype html>
 <html lang="en">
-  <head><BaseHead title="Transactions — Paisa" description="Search, edit, categorise, and manage all your transactions." /></head>
+  <head><BaseHead title="Transactions — Paisa Inbox" description="Search, edit, categorise, and manage all your transactions." /></head>
   <body>
     <div class="app-shell">
       <AppSidebar active="transactions" />
@@ -22,8 +22,9 @@ import DateWindow from "../components/DateWindow.astro";
               <DateWindow id="transactions-date-window" />
             </div>
             <div class="ledger-summary"><strong id="ledger-count"><span class="skeleton-line medium"></span></strong><span id="ledger-total"><span class="skeleton-line short"></span></span></div>
+            <div class="bulk-toolbar" id="bulk-toolbar" hidden><strong><span id="selected-count">0</span> selected</strong><button class="danger-button" id="delete-selected" type="button">Delete selected</button><button class="secondary-button" id="clear-selection" type="button">Cancel</button></div>
             <div class="ledger-table" role="table" aria-label="Transactions">
-              <div class="ledger-row ledger-head" role="row"><span>Payment</span><span>Category</span><span>Status</span><span>Amount</span><span>Actions</span></div>
+              <div class="ledger-row ledger-head" role="row"><span class="ledger-select"><input id="select-page" type="checkbox" aria-label="Select all transactions on this page" /> Payment</span><span>Category</span><span>Status</span><span>Amount</span><span>Actions</span></div>
               <div id="ledger-rows" class="ledger-rows" aria-busy="true">{[1,2,3,4,5].map(() => <div class="ledger-row ledger-skeleton" aria-hidden="true"><span class="ledger-merchant"><i class="skeleton-avatar"></i><span><b class="skeleton-line medium"></b><b class="skeleton-line short"></b></span></span><span class="skeleton-line medium"></span><span class="skeleton-line short"></span><span class="skeleton-line short"></span><span class="skeleton-line medium"></span></div>)}</div>
             </div>
             <div class="ledger-empty" id="ledger-empty" hidden><span>⌕</span><h3>No transactions found.</h3><p>Try another filter or add a transaction manually.</p><button class="primary-button" type="button" data-add-transaction>Add transaction</button></div>
@@ -34,7 +35,7 @@ import DateWindow from "../components/DateWindow.astro";
             </nav>
           </section>
         </section>
-        <footer><span>Paisa gives you a clean ledger without turning money into admin.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
+        <footer><span>Paisa Inbox gives you a clean ledger without turning money into admin.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
       </main>
     </div>
 
