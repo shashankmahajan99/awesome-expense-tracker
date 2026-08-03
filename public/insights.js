@@ -6,16 +6,17 @@ async function api(path) { const response = await fetch(path); const data = awai
 
 async function load() {
   try {
-    const [data, bootstrap] = await Promise.all([api("/api/insights"), api("/api/bootstrap")]);
+    const query = window.PaisaDateWindow.query($("#insights-date-window")).toString(); const suffix = query ? `?${query}` : "";
+    const [data, bootstrap] = await Promise.all([api(`/api/insights${suffix}`), api(`/api/bootstrap${suffix}`)]);
     $("#insight-total").textContent = formatter.format(data.totals.amountPaise / 100); $("#insight-count").textContent = `${data.totals.count} payments tracked`;
     $("#insight-average").textContent = formatter.format(data.totals.averagePaise / 100);
     const unresolved = data.statuses.find((item) => item.status === "unresolved")?.count || 0; const understood = data.totals.count ? Math.round(((data.totals.count - unresolved) / data.totals.count) * 100) : 100;
     $("#insight-understood").textContent = `${understood}%`; $("#insight-unresolved").textContent = unresolved ? `${unresolved} still need context` : "Everything is understood";
     document.querySelectorAll("[data-inbox-count]").forEach((node) => node.textContent = bootstrap.summary.count); $("[data-profile-name]").textContent = bootstrap.user.name || "My account"; $("[data-profile-email]").textContent = bootstrap.user.email || "Private account";
 
-    const maxDay = Math.max(1, ...data.days.map((item) => item.amountPaise)); const bars = $("#daily-bars"); bars.replaceChildren(); bars.classList.remove("insight-skeleton-bars"); bars.setAttribute("aria-busy", "false");
-    if (!data.days.length) bars.textContent = "Import transactions to see your spending rhythm.";
-    for (const item of data.days) {
+    const days = data.days.slice(-30); const maxDay = Math.max(1, ...days.map((item) => item.amountPaise)); const bars = $("#daily-bars"); bars.replaceChildren(); bars.classList.remove("insight-skeleton-bars"); bars.setAttribute("aria-busy", "false");
+    if (!days.length) bars.textContent = "Import transactions to see your spending rhythm.";
+    for (const item of days) {
       const column = document.createElement("div"); const amount = document.createElement("small"); amount.textContent = formatter.format(item.amountPaise / 100);
       const bar = document.createElement("i"); bar.style.height = `${Math.max(5, (item.amountPaise / maxDay) * 100)}%`;
       const day = document.createElement("span"); day.textContent = new Date(`${item.day}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); column.append(amount, bar, day); bars.append(column);
@@ -34,4 +35,4 @@ async function load() {
     const toast = $(".toast"); toast.querySelector("small").textContent = error.message; toast.classList.add("visible");
   }
 }
-$("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open")); load();
+$("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open")); window.PaisaDateWindow.setup($("#insights-date-window"), () => load());

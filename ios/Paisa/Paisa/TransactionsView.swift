@@ -30,9 +30,11 @@ struct TransactionsView: View {
     @State private var search = ""
     @State private var editing: PaisaTransaction?
     @State private var addNew = false
-    private var filtered: [PaisaTransaction] { search.isEmpty ? transactions : transactions.filter { "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search) } }
+    @State private var dateWindow: PaisaDateWindow = .all
+    private var filtered: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) && (search.isEmpty || "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search)) } }
     var body: some View {
         List {
+            Section { HStack { Label("Showing", systemImage: "calendar"); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) } }
             ForEach(filtered) { item in
                 Button { editing = item } label: { TransactionRow(item: item) }
                     .buttonStyle(.plain)
@@ -60,35 +62,45 @@ struct TransactionEditor: View {
     @EnvironmentObject private var sync: SyncManager
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var allTransactions: [PaisaTransaction]
     let item: PaisaTransaction?
-    @State private var merchant = ""; @State private var amount = 0.0; @State private var date = Date(); @State private var category = "Uncategorised"; @State private var accountTag = ""; @State private var note = ""; @State private var status = "unresolved"
+    @State private var merchant = ""; @State private var amount = 0.0; @State private var date = Date(); @State private var timeVerified = true; @State private var category = "Uncategorised"; @State private var accountTag = ""; @State private var note = ""; @State private var status = "unresolved"
     var body: some View {
         NavigationStack {
             Form {
-                Section("Payment") { TextField("Merchant", text: $merchant); TextField("Amount", value: $amount, format: .number).keyboardType(.decimalPad); DatePicker("Date", selection: $date) }
+                Section("Payment") {
+                    TextField("Merchant", text: $merchant)
+                    TextField("Amount", value: $amount, format: .number).keyboardType(.decimalPad)
+                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    Toggle("Exact time known", isOn: $timeVerified)
+                    if timeVerified { DatePicker("Time", selection: $date, displayedComponents: .hourAndMinute) }
+                }
                 Section("Understanding") { LabeledContent("Category") { PaisaCategoryField(category: $category, suggestions: PaisaCategories.suggestions(from: allTransactions)) }; TextField("Account tag", text: $accountTag, prompt: Text("Savings - ICICI")); Picker("Status", selection: $status) { Text("Needs review").tag("unresolved"); Text("Explained").tag("explained"); Text("Known / repeat").tag("known"); Text("Deferred").tag("deferred") }; TextField("Context or note", text: $note, axis: .vertical) }
             }
             .scrollContentBackground(.hidden).background(PaisaTheme.canvas)
             .navigationTitle(item == nil ? "Add transaction" : "Edit transaction")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(merchant.isEmpty || amount <= 0) } }
-        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; category = item.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame ? "" : item.category; accountTag = item.accountTag; note = item.note; status = item.reviewStatus } }
+        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; timeVerified = item.timeVerified; category = item.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame ? "" : item.category; accountTag = item.accountTag; note = item.note; status = item.reviewStatus } }
     }
-    private func save() { let savedCategory = PaisaCategories.savedValue(category); if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.category = savedCategory; item.accountTag = accountTag; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, category: savedCategory, note: note, reviewStatus: status, accountTag: accountTag)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
+    private func save() { let savedCategory = PaisaCategories.savedValue(category); if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.timeVerified = timeVerified; item.category = savedCategory; item.accountTag = accountTag; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, timeVerified: timeVerified, category: savedCategory, note: note, reviewStatus: status, accountTag: accountTag)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
 }
 
 struct InsightsView: View {
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var transactions: [PaisaTransaction]
-    private var total: Double { transactions.reduce(0) { $0 + $1.amount } }
+    @State private var dateWindow: PaisaDateWindow = .all
+    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) } }
+    private var total: Double { visible.reduce(0) { $0 + $1.amount } }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PaisaEyebrow(text: "Spending snapshot")
+                HStack { Label("Date window", systemImage: "calendar").foregroundStyle(PaisaTheme.muted); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) }
+                    .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Total tracked").font(.subheadline).foregroundStyle(.white.opacity(0.7))
                     Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                    Text("Across \(transactions.count) payments").font(.caption).foregroundStyle(.white.opacity(0.65))
+                    Text("Across \(visible.count) payments").font(.caption).foregroundStyle(.white.opacity(0.65))
                 }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 24))
                 PaisaEyebrow(text: "Where it went").padding(.top, 8)
-                ForEach(Dictionary(grouping: transactions, by: \.category).sorted { $0.value.reduce(0) { $0 + $1.amount } > $1.value.reduce(0) { $0 + $1.amount } }, id: \.key) { category, items in
+                ForEach(Dictionary(grouping: visible, by: \.category).sorted { $0.value.reduce(0) { $0 + $1.amount } > $1.value.reduce(0) { $0 + $1.amount } }, id: \.key) { category, items in
                     let amount = items.reduce(0) { $0 + $1.amount }
                     PaisaCard {
                         HStack { Text(category).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Spacer(); Text(PaisaFormat.amount(amount)).fontWeight(.bold).foregroundStyle(PaisaTheme.ink) }

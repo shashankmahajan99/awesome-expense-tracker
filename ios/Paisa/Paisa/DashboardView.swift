@@ -5,21 +5,25 @@ struct DashboardView: View {
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }, sort: \PaisaTransaction.occurredAt, order: .reverse) private var transactions: [PaisaTransaction]
     @State private var showReview = false
     @State private var showImport = false
+    @State private var dateWindow: PaisaDateWindow = .all
 
     // Deferred payments are intentionally understood for today, matching the
     // web inbox. They return only when the server schedules a later review.
-    private var unresolved: [PaisaTransaction] { transactions.filter { $0.reviewStatus == "unresolved" } }
-    private var today: [PaisaTransaction] { transactions.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) } }
-    private var total: Double { transactions.reduce(0) { $0 + $1.amount } }
+    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) } }
+    private var unresolved: [PaisaTransaction] { visible.filter { $0.reviewStatus == "unresolved" } }
+    private var today: [PaisaTransaction] { visible.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) } }
+    private var total: Double { visible.reduce(0) { $0 + $1.amount } }
     private var todayTotal: Double { today.reduce(0) { $0 + $1.amount } }
-    private var largest: PaisaTransaction? { transactions.max { $0.amount < $1.amount } }
-    private var understood: Int { transactions.isEmpty ? 100 : Int(Double(transactions.count - unresolved.count) / Double(transactions.count) * 100) }
+    private var largest: PaisaTransaction? { visible.max { $0.amount < $1.amount } }
+    private var understood: Int { visible.isEmpty ? 100 : Int(Double(visible.count - unresolved.count) / Double(visible.count) * 100) }
     private var unresolvedLabel: String { unresolved.count == 1 ? "1 payment" : "\(unresolved.count) payments" }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                HStack { Label("Date window", systemImage: "calendar").foregroundStyle(PaisaTheme.muted); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) }
+                    .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 hero
                 metrics
                 inbox
@@ -64,7 +68,7 @@ struct DashboardView: View {
             HStack {
                 PaisaEyebrow(text: "Total tracked").foregroundStyle(.white.opacity(0.66))
                 Spacer()
-                Text("\(transactions.count) payments").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.72))
+                Text("\(visible.count) payments").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.72))
             }
             Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
             HStack(spacing: 10) {
@@ -147,7 +151,7 @@ struct TransactionRow: View {
                 .frame(width: 42, height: 42).background(PaisaTheme.forest.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.merchant).font(.body.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
-                Text([item.category, item.accountTag, item.occurredAt.formatted(.dateTime.day().month())].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
+                Text([item.category, item.accountTag, PaisaFormat.transactionDate(item.occurredAt, timeVerified: item.timeVerified)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Spacer()
             Text(PaisaFormat.amount(item.amount)).fontWeight(.bold).foregroundStyle(PaisaTheme.ink)

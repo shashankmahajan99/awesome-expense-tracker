@@ -8,6 +8,7 @@ final class PaisaTransaction {
     var merchant: String
     var amount: Double
     var occurredAt: Date
+    var timeVerified: Bool = false
     var category: String
     var note: String
     var reviewStatus: String
@@ -16,9 +17,9 @@ final class PaisaTransaction {
     var updatedAt: Date = Date.now
     var isDeleted: Bool = false
 
-    init(id: UUID = UUID(), merchant: String, amount: Double, occurredAt: Date = .now, category: String = "Uncategorised", note: String = "", reviewStatus: String = "unresolved", source: String = "manual", accountTag: String = "", updatedAt: Date = .now, isDeleted: Bool = false) {
+    init(id: UUID = UUID(), merchant: String, amount: Double, occurredAt: Date = .now, timeVerified: Bool = true, category: String = "Uncategorised", note: String = "", reviewStatus: String = "unresolved", source: String = "manual", accountTag: String = "", updatedAt: Date = .now, isDeleted: Bool = false) {
         self.id = id; self.merchant = merchant; self.amount = amount; self.occurredAt = occurredAt
-        self.category = category; self.note = note; self.reviewStatus = reviewStatus; self.source = source; self.accountTag = accountTag; self.updatedAt = updatedAt; self.isDeleted = isDeleted
+        self.timeVerified = timeVerified; self.category = category; self.note = note; self.reviewStatus = reviewStatus; self.source = source; self.accountTag = accountTag; self.updatedAt = updatedAt; self.isDeleted = isDeleted
     }
 }
 
@@ -62,4 +63,28 @@ enum PaisaFormat {
         let value = NumberFormatter(); value.numberStyle = .currency; value.currencyCode = "INR"; value.maximumFractionDigits = 0; value.locale = Locale(identifier: "en_IN"); return value
     }()
     static func amount(_ value: Double) -> String { money.string(from: NSNumber(value: value)) ?? "₹0" }
+    static func transactionDate(_ date: Date, timeVerified: Bool) -> String { timeVerified ? date.formatted(.dateTime.day().month().year().hour().minute()) : date.formatted(.dateTime.day().month().year()) }
+}
+
+enum PaisaDateWindow: String, CaseIterable, Identifiable {
+    case all = "All time", seven = "Last 7 days", thirty = "Last 30 days", ninety = "Last 90 days", month = "This month", year = "This year"
+    var id: String { rawValue }
+    func contains(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard self != .all else { return true }
+        let start: Date?
+        switch self {
+        case .seven: start = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))
+        case .thirty: start = calendar.date(byAdding: .day, value: -29, to: calendar.startOfDay(for: now))
+        case .ninety: start = calendar.date(byAdding: .day, value: -89, to: calendar.startOfDay(for: now))
+        case .month: start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))
+        case .year: start = calendar.date(from: calendar.dateComponents([.year], from: now))
+        case .all: start = nil
+        }
+        return start.map { date >= $0 && date <= now } ?? true
+    }
+}
+
+struct PaisaDateWindowPicker: View {
+    @Binding var selection: PaisaDateWindow
+    var body: some View { Picker("Date window", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu) }
 }

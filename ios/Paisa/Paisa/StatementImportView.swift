@@ -194,6 +194,7 @@ struct StatementImportView: View {
 struct StatementRow: Identifiable {
     let id = UUID()
     let date: Date
+    let timeVerified: Bool
     let merchant: String
     let amount: Double
     var accountTag: String
@@ -273,13 +274,13 @@ enum StatementDocumentParser {
         for values in table.dropFirst() {
             func value(_ index: Int?) -> String { guard let index, values.indices.contains(index) else { return "" }; return values[index].trimmingCharacters(in: .whitespacesAndNewlines) }
             let merchant = cleanMerchant(value(merchantColumn))
-            let date = parseDate(value(dateColumn)) ?? .now
+            guard let date = parseDateInfo(value(dateColumn)) else { continue }
             let debit = parseAmount(value(debitColumn))
             let amount = debit ?? parseAmount(value(amountColumn))
             let type = value(typeColumn).lowercased()
             let hasCreditOnly = debit == nil && creditColumn != nil && parseAmount(value(creditColumn)) != nil
             guard !merchant.isEmpty, let amount, amount > 0, !hasCreditOnly, !type.contains("cr"), !type.contains("credit") else { continue }
-            parsed.append(StatementRow(date: date, merchant: merchant, amount: amount, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: value(referenceColumn)))
+            parsed.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: merchant, amount: amount, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: value(referenceColumn)))
         }
         return StatementParseResult(rows: parsed, accountTag: accountTag)
     }
@@ -292,7 +293,7 @@ enum StatementDocumentParser {
         var output: [StatementRow] = []
         for raw in lines {
             let line = raw.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let date = parseDate(line), line.count > 8 else { continue }
+            guard let date = parseDateInfo(line), line.count > 8 else { continue }
             let fullRange = NSRange(line.startIndex..., in: line)
             if ignored?.firstMatch(in: line, range: fullRange) != nil { continue }
             if line.range(of: #"\b(?:CR|credit|deposit)\b"#, options: [.regularExpression, .caseInsensitive]) != nil,
@@ -311,7 +312,7 @@ enum StatementDocumentParser {
             let reference: String
             if let match = referenceRegex?.firstMatch(in: line, range: fullRange), let range = Range(match.range(at: 1), in: line) { reference = String(line[range]) }
             else { reference = "" }
-            output.append(StatementRow(date: date, merchant: String(merchant.prefix(160)), amount: selected.0, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
+            output.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: String(merchant.prefix(160)), amount: selected.0, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
         }
         return output
     }
@@ -359,13 +360,20 @@ enum StatementDocumentParser {
     }
 
     private static let dateFormats = ["dd/MM/yyyy", "dd-MM-yyyy", "dd/MM/yy", "dd-MM-yy", "dd MMM yyyy", "dd-MMM-yyyy", "yyyy-MM-dd", "MM/dd/yyyy"]
-    private static func parseDate(_ value: String) -> Date? {
-        if let iso = ISO8601DateFormatter().date(from: value) { return iso }
-        let candidates = [value]
+    private struct ParsedDate { let date: Date; let timeVerified: Bool }
+    private static func parseDateInfo(_ value: String) -> ParsedDate? {
+        if let iso = ISO8601DateFormatter().date(from: value), value.range(of: #"[T ]\d{1,2}:\d{2}"#, options: .regularExpression) != nil { return ParsedDate(date: iso, timeVerified: true) }
         for format in dateFormats {
             let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_IN_POSIX"); formatter.dateFormat = format; formatter.isLenient = false
-            for candidate in candidates {
-                if let match = candidate.range(of: dateRegex(for: format), options: .regularExpression), let date = formatter.date(from: String(candidate[match])) { return Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: date) }
+            if let match = value.range(of: dateRegex(for: format), options: [.regularExpression, .caseInsensitive]), let date = formatter.date(from: String(value[match])) {
+                if let timeRange = value.range(of: #"\b(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:\s*[AP]M)?\b"#, options: [.regularExpression, .caseInsensitive]) {
+                    let raw = String(value[timeRange]).uppercased().replacingOccurrences(of: " ", with: "")
+                    let components = raw.replacingOccurrences(of: "AM", with: "").replacingOccurrences(of: "PM", with: "").split(separator: ":").compactMap { Int($0) }
+                    guard components.count >= 2 else { continue }
+                    var hour = components[0]; if raw.hasSuffix("PM") && hour < 12 { hour += 12 }; if raw.hasSuffix("AM") && hour == 12 { hour = 0 }
+                    if let precise = Calendar.current.date(bySettingHour: hour, minute: components[1], second: components.count > 2 ? components[2] : 0, of: date) { return ParsedDate(date: precise, timeVerified: true) }
+                }
+                if let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: date) { return ParsedDate(date: noon, timeVerified: false) }
             }
         }
         return nil
@@ -416,6 +424,7 @@ enum StatementTransactionMerger {
                 let crossSource = sourceSet(match.source).isDisjoint(with: sourceSet(row.sourceKind))
                 match.source = joinedSources(match.source, row.sourceKind)
                 match.accountTag = combinedTag(match.accountTag, row.accountTag)
+                if row.timeVerified && !match.timeVerified { match.occurredAt = row.date; match.timeVerified = true }
                 if crossSource {
                     let verification = "Verified in \(match.accountTag)"
                     if !match.note.contains(verification) { match.note = [match.note, verification].filter { !$0.isEmpty }.joined(separator: " · ") }
@@ -424,7 +433,7 @@ enum StatementTransactionMerger {
                 continue
             }
             let noteParts = [row.reference.isEmpty ? nil : "Reference: \(row.reference)", "Imported from \(row.sourceFile)"].compactMap { $0 }
-            let transaction = PaisaTransaction(merchant: row.merchant, amount: row.amount, occurredAt: row.date, note: noteParts.joined(separator: " · "), source: row.sourceKind, accountTag: row.accountTag)
+            let transaction = PaisaTransaction(merchant: row.merchant, amount: row.amount, occurredAt: row.date, timeVerified: row.timeVerified, note: noteParts.joined(separator: " · "), source: row.sourceKind, accountTag: row.accountTag)
             context.insert(transaction); candidates.append(transaction); inserted += 1
         }
         return Summary(inserted: inserted, verified: verified, skipped: skipped)

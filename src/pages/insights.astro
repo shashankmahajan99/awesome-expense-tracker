@@ -2,6 +2,7 @@
 import BaseHead from "../components/BaseHead.astro";
 import AppSidebar from "../components/AppSidebar.astro";
 import AppTopbar from "../components/AppTopbar.astro";
+import DateWindow from "../components/DateWindow.astro";
 ---
 <!doctype html>
 <html lang="en">
@@ -13,6 +14,7 @@ import AppTopbar from "../components/AppTopbar.astro";
         <AppTopbar title="Insights" subtitle="PATTERNS, NOT SPREADSHEETS" action="none" />
         <section class="workspace-page">
           <div class="page-intro"><div><span class="eyebrow">YOUR FINANCIAL PICTURE</span><h2>See what changed and why.</h2><p>Insights use your real transaction data. Add context during review to make every pattern more useful.</p></div><a class="secondary-button" href="/transactions">Manage transactions →</a></div>
+          <DateWindow id="insights-date-window" />
           <section class="insight-metrics">
             <article class="panel"><span class="eyebrow">TOTAL TRACKED</span><strong id="insight-total"><span class="skeleton-line metric-line"></span></strong><small id="insight-count"><span class="skeleton-line medium"></span></small></article>
             <article class="panel"><span class="eyebrow">AVERAGE PAYMENT</span><strong id="insight-average"><span class="skeleton-line metric-line"></span></strong><small>Across all imported payments</small></article>
@@ -28,6 +30,6 @@ import AppTopbar from "../components/AppTopbar.astro";
       </main>
     </div>
     <div class="toast" role="status" aria-live="polite"><span>!</span><p><strong>Couldn’t load insights</strong><small>Please try again</small></p></div>
-    <script is:inline src="/insights.js"></script>
+    <script is:inline src="/date-window.js"></script><script is:inline src="/insights.js"></script>
   </body>
 </html>

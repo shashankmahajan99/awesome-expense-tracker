@@ -3,6 +3,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const dialogs = { review: $("#review-dialog"), batch: $("#batch-dialog"), preferences: $("#preferences-dialog"), completion: $("#completion-dialog"), import: $("#import-dialog") };
 const formatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const tones = ["amber", "red", "blue", "green", "yellow"];
+const defaultCategories = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"];
 let items = [];
 let current = 0;
 let reviewedCount = 0;
@@ -35,13 +36,14 @@ function setButtonLoading(button, loading) {
 
 function mapTransaction(transaction, index) {
   const merchant = transaction.merchant || "Unknown payment";
+  const dateOptions = transaction.timeVerified ? { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" };
   return {
     id: String(transaction.id), merchant,
-    meta: new Date(transaction.occurredAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }),
+    meta: new Date(transaction.occurredAt).toLocaleString("en-IN", dateOptions),
     amount: formatter.format(Number(transaction.amountPaise || 0) / 100),
     icon: merchant.slice(0, 2).toUpperCase(), tone: tones[index % tones.length],
     status: "Needs context", detail: transaction.category ? `Likely ${transaction.category}` : "Category uncertain",
-    occurredAt: transaction.occurredAt, amountPaise: Number(transaction.amountPaise || 0), category: transaction.category,
+    occurredAt: transaction.occurredAt, timeVerified: Boolean(transaction.timeVerified), amountPaise: Number(transaction.amountPaise || 0), category: transaction.category,
     description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus, accountTag: transaction.accountTag || "",
   };
 }
@@ -89,7 +91,15 @@ function renderReview() {
   $("#review-meta").textContent = item.meta.toUpperCase(); $("#review-amount").textContent = item.amount; $("#review-merchant").textContent = item.merchant;
   $("#review-question").textContent = item.merchant === "Indian Oil" ? "Was this fuel for your Kushaq?" : "What was this payment for?";
   $("#review-hint").textContent = item.detail; $("#answer-input").value = "";
+  populateReviewCategories(item.category);
 }
+
+function populateReviewCategories(selected = "Uncategorised") {
+  const select = $("#review-category"); const categories = [...new Set([...defaultCategories, ...items.map((item) => item.category).filter(Boolean), selected].filter(Boolean))].sort();
+  select.replaceChildren(...categories.map((value) => new Option(value, value)), new Option("Add a new category…", "__custom")); select.value = categories.includes(selected) ? selected : "Uncategorised"; $("#review-category-custom").hidden = true;
+}
+
+function reviewCategory() { const selected = $("#review-category").value; return selected === "__custom" ? $("#review-category-custom").value.trim() || "Uncategorised" : selected || "Uncategorised"; }
 
 function openReview(id) {
   if (id) current = Math.max(0, items.findIndex((item) => item.id === String(id)));
@@ -101,7 +111,7 @@ async function resolveCurrent(action, message, context = "") {
   if (!item || reviewSaving) return;
   reviewSaving = true; const button = action === "explain" ? $("#submit-answer") : $(`[data-action="${action === "defer" ? "skip" : action}"]`); setButtonLoading(button, true);
   try {
-    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context }) });
+    const category = reviewCategory(); await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
     renderReview();
@@ -225,18 +235,26 @@ function parseCSV(text, file) {
     const value = (index) => index >= 0 ? String(values[index] || "").trim() : "";
     const debit = Number(value(debitIndex).replace(/[^0-9.-]/g, "")); const amount = debit > 0 ? debit : Number(value(amountIndex).replace(/[^0-9.-]/g, ""));
     const type = value(typeIndex).toLowerCase(); const hasCreditOnly = !(debit > 0) && creditIndex >= 0 && Number(value(creditIndex).replace(/[^0-9.-]/g, "")) > 0;
-    return { occurredAt: statementDate(value(dateIndex)) || new Date().toISOString(), merchant: value(merchantIndex), description: value(merchantIndex), amount, category: categoryIndex >= 0 ? value(categoryIndex) || "Uncategorised" : "Uncategorised", accountTag, sourceFile: file.name, source, reference: value(referenceIndex), credit: hasCreditOnly || /\b(cr|credit)\b/.test(type) };
-  }).filter((item) => item.merchant && item.amount > 0 && !item.credit);
+    const date = statementDate(value(dateIndex));
+    return { occurredAt: date?.occurredAt, timeVerified: date?.timeVerified || false, merchant: value(merchantIndex), description: value(merchantIndex), amount, category: categoryIndex >= 0 ? value(categoryIndex) || "Uncategorised" : "Uncategorised", accountTag, sourceFile: file.name, source, reference: value(referenceIndex), credit: hasCreditOnly || /\b(cr|credit)\b/.test(type) };
+  }).filter((item) => item.occurredAt && item.merchant && item.amount > 0 && !item.credit);
   return { rows: parsed, accountTag, detail: `${parsed.length} debit rows · ${headers.length} columns detected` };
 }
 
 function statementDate(value) {
-  const iso = value.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/); if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), 12).toISOString();
+  const fullISO = value.match(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?\b/i);
+  if (fullISO) { const parsed = new Date(fullISO[0]); if (!Number.isNaN(parsed.getTime())) return { occurredAt: parsed.toISOString(), timeVerified: true }; }
+  const time = value.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?\b/i);
+  const build = (year, month, day) => {
+    let hour = time ? Number(time[1]) : 12; const minute = time ? Number(time[2]) : 0; const meridiem = time?.[3]?.toUpperCase();
+    if (meridiem === "PM" && hour < 12) hour += 12; if (meridiem === "AM" && hour === 12) hour = 0;
+    const date = new Date(year, month - 1, day, hour, minute); return Number.isNaN(date.getTime()) ? null : { occurredAt: date.toISOString(), timeVerified: Boolean(time) };
+  };
+  const iso = value.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/); if (iso) return build(Number(iso[1]), Number(iso[2]), Number(iso[3]));
   const named = value.match(/\b(\d{1,2})[- ](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ](\d{2,4})\b/i);
-  if (named) { const date = new Date(`${named[1]} ${named[2]} ${named[3].length === 2 ? `20${named[3]}` : named[3]} 12:00:00`); return Number.isNaN(date.getTime()) ? null : date.toISOString(); }
+  if (named) { const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(named[2].toLowerCase()) + 1; return build(Number(named[3].length === 2 ? `20${named[3]}` : named[3]), month, Number(named[1])); }
   const match = value.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})\b/); if (!match) return null;
-  const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]); const date = new Date(year, Number(match[2]) - 1, Number(match[1]), 12);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  return build(Number(match[3].length === 2 ? `20${match[3]}` : match[3]), Number(match[2]), Number(match[1]));
 }
 
 function parseStatementText(lines, file) {
@@ -252,7 +270,7 @@ function parseStatementText(lines, file) {
     merchant = merchant.replace(/\b(?:DR|CR|debit|credit|withdrawal)\b/gi, "").replace(/\b(?:UPI|IMPS|NEFT|POS|ECOM|VPS|IPS|ATM|REF|TXN)\b[:/ -]*/gi, " ").replace(/\s+/g, " ").trim();
     merchant = merchant.replace(/^[|:\-\s]+|[|:\-\s]+$/g, "").slice(0, 160); if (!merchant || /^\d+$/.test(merchant)) continue;
     const reference = line.match(/(?:UTR|UPI ref|reference|ref no|transaction id|order id)[:\s-]*([A-Z0-9-]{6,40})/i)?.[1] || "";
-    candidates.push({ occurredAt: date, merchant, description: `${line.slice(0, 240)}${reference ? ` · Reference: ${reference}` : ""}`, amount, category: "Uncategorised", accountTag, sourceFile: file.name, source, reference });
+    candidates.push({ occurredAt: date.occurredAt, timeVerified: date.timeVerified, merchant, description: `${line.slice(0, 240)}${reference ? ` · Reference: ${reference}` : ""}`, amount, category: "Uncategorised", accountTag, sourceFile: file.name, source, reference });
   }
   return { rows: candidates, accountTag, detail: `${candidates.length} debit rows · ${lines.length} text rows examined` };
 }
@@ -295,7 +313,8 @@ function renderImportFiles() {
 
 async function loadDashboard() {
   try {
-    const [data, insights] = await Promise.all([api("/api/bootstrap"), api("/api/insights")]);
+    const query = window.PaisaDateWindow.query($("#dashboard-date-window")).toString(); const suffix = query ? `?${query}` : "";
+    const [data, insights] = await Promise.all([api(`/api/bootstrap${suffix}`), api(`/api/insights${suffix}`)]);
     items = data.transactions.map(mapTransaction); reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
     const firstName = (data.user.name || "there").split(" ")[0]; $(".topbar h1").textContent = `Good evening, ${firstName}.`;
     $("[data-profile-name]").textContent = data.user.name || firstName; $("[data-profile-email]").textContent = data.user.email || "Private account";
@@ -327,6 +346,7 @@ $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
   else { const merchant = items[current]?.merchant || ""; dialogs.review.close(); $("#batch-input").value = `${merchant} was part of `; dialogs.batch.showModal(); $("#batch-input").focus(); }
 }));
 $("#voice-button")?.addEventListener("click", () => startVoice($("#answer-input"), $("#voice-button")));
+$("#review-category")?.addEventListener("change", (event) => { const custom = $("#review-category-custom"); custom.hidden = event.currentTarget.value !== "__custom"; if (!custom.hidden) custom.focus(); });
 
 $$('[data-open-batch]').forEach((button) => button.addEventListener("click", () => { $("#batch-result").hidden = true; $("#batch-input").value = ""; dialogs.batch.showModal(); }));
 $$('[data-close-batch]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.batch.close(); }));
@@ -357,6 +377,11 @@ $("#preferences-form")?.addEventListener("submit", async (event) => {
 $("#export-data")?.addEventListener("click", async () => {
   try { const data = await api("/api/export"); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `paisa-export-${new Date().toISOString().slice(0,10)}.json`; link.click(); URL.revokeObjectURL(url); showToast("Export ready", "Your private data copy was downloaded"); }
   catch (error) { showToast("Export failed", error.message); }
+});
+$("#reset-financial-data")?.addEventListener("click", async () => {
+  if (!window.confirm("Permanently clear every transaction and review for this account? Your sign-in and reminder preferences will remain. This cannot be undone.")) return;
+  try { const result = await api("/api/transactions", { method: "DELETE" }); dialogs.preferences.close(); items = []; syncQueue(); showToast(`${result.deleted} transactions cleared`, "You can now import statements with the updated parser"); await loadDashboard(); }
+  catch (error) { showToast("Reset failed", error.message); }
 });
 $("#delete-account")?.addEventListener("click", async () => {
   if (!window.confirm("Permanently delete all Paisa transactions, reviews, preferences, and audit data for this account? This cannot be undone.")) return;
@@ -405,4 +430,4 @@ if (params.has("preferences")) setTimeout(() => { populatePreferences(preference
 if (params.has("import")) dialogs.import?.showModal();
 if (params.has("review")) setTimeout(() => openReview(params.get("review")), 400);
 document.addEventListener("keydown", (event) => { if (dialogs.review?.open && event.key.toLowerCase() === "s" && document.activeElement !== $("#answer-input")) { event.preventDefault(); resolveCurrent("defer", "Saved for later"); } });
-loadDashboard();
+window.PaisaDateWindow.setup($("#dashboard-date-window"), () => loadDashboard());

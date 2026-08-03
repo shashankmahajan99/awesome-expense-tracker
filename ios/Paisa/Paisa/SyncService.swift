@@ -10,6 +10,7 @@ private struct SyncTransaction: Codable {
     let merchant: String
     let amount: Double
     let occurredAt: String
+    let timeVerified: Bool?
     let category: String
     let context: String
     let reviewStatus: String
@@ -186,7 +187,7 @@ final class SyncManager: ObservableObject {
     private func sync(context: ModelContext) async throws {
         let local = try context.fetch(FetchDescriptor<PaisaTransaction>())
         let payload = local.map { item in
-            SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
+            SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), timeVerified: item.timeVerified, category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
         }
         let response: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: ["transactions": payload], authenticated: true)
         var byID = Dictionary(uniqueKeysWithValues: local.map { ($0.id.uuidString.lowercased(), $0) })
@@ -198,10 +199,10 @@ final class SyncManager: ObservableObject {
             guard let id = UUID(uuidString: remote.id), let occurredAt = Self.parse(remote.occurredAt), let updatedAt = Self.parse(remote.updatedAt) else { continue }
             if let item = byID[remote.id.lowercased()] {
                 guard updatedAt >= item.updatedAt else { continue }
-                item.merchant = remote.merchant; item.amount = remote.amount; item.occurredAt = occurredAt; item.category = remote.category
+                item.merchant = remote.merchant; item.amount = remote.amount; item.occurredAt = occurredAt; item.timeVerified = remote.timeVerified ?? false; item.category = remote.category
                 item.note = remote.context; item.reviewStatus = remote.reviewStatus; item.source = remote.source; item.accountTag = remote.accountTag ?? ""; item.updatedAt = updatedAt; item.isDeleted = false
             } else {
-                context.insert(PaisaTransaction(id: id, merchant: remote.merchant, amount: remote.amount, occurredAt: occurredAt, category: remote.category, note: remote.context, reviewStatus: remote.reviewStatus, source: remote.source, accountTag: remote.accountTag ?? "", updatedAt: updatedAt))
+                context.insert(PaisaTransaction(id: id, merchant: remote.merchant, amount: remote.amount, occurredAt: occurredAt, timeVerified: remote.timeVerified ?? false, category: remote.category, note: remote.context, reviewStatus: remote.reviewStatus, source: remote.source, accountTag: remote.accountTag ?? "", updatedAt: updatedAt))
             }
         }
         for tombstone in response.tombstones {

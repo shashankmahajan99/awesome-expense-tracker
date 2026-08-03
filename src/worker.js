@@ -4,7 +4,7 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, display_name TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS reminder_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, personality TEXT NOT NULL DEFAULT 'Balanced', preferred_time TEXT NOT NULL DEFAULT '21:30', quiet_start TEXT NOT NULL DEFAULT '23:00', quiet_end TEXT NOT NULL DEFAULT '07:00', important_amount_paise INTEGER NOT NULL DEFAULT 100000, minimum_total_paise INTEGER NOT NULL DEFAULT 30000, weekly_cleanup INTEGER NOT NULL DEFAULT 1, timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS review_groups (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, context TEXT, category TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
+  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, time_verified INTEGER NOT NULL DEFAULT 0, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
   `CREATE INDEX IF NOT EXISTS idx_transactions_review_queue ON transactions(user_id, review_status, occurred_at, importance_score DESC)`,
   `CREATE TABLE IF NOT EXISTS daily_reviews (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', unresolved_count INTEGER NOT NULL DEFAULT 0, unresolved_amount_paise INTEGER NOT NULL DEFAULT 0, notified_at TEXT, started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS notification_deliveries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, status TEXT NOT NULL, provider_message_id TEXT, attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
@@ -74,6 +74,17 @@ function localDate(timezone = "Asia/Kolkata") {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
+function dateWindow(url, column = "occurred_at") {
+  const clauses = [], bindings = [];
+  const valid = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "") && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
+  const from = url?.searchParams.get("from") || ""; const to = url?.searchParams.get("to") || "";
+  const requestedOffset = Number(url?.searchParams.get("offset")); const offset = Number.isFinite(requestedOffset) && requestedOffset >= -720 && requestedOffset <= 840 ? requestedOffset : 0;
+  const boundary = (value, extraDays = 0) => { const [year, month, day] = value.split("-").map(Number); return new Date(Date.UTC(year, month - 1, day + extraDays) - offset * 60000).toISOString(); };
+  if (valid(from)) { clauses.push(`${column}>=?`); bindings.push(boundary(from)); }
+  if (valid(to)) { clauses.push(`${column}<?`); bindings.push(boundary(to, 1)); }
+  return { clauses, bindings, from: valid(from) ? from : null, to: valid(to) ? to : null };
+}
+
 async function audit(db, userId, action, entityType, entityId = null, metadata = null) {
   await db.prepare("INSERT INTO audit_log (id,user_id,action,entity_type,entity_id,metadata) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(), userId, action, entityType, entityId, metadata ? JSON.stringify(metadata) : null).run();
 }
@@ -93,6 +104,7 @@ function mapTransaction(row) {
     amountPaise: Number(row.amount_paise),
     amount: Number(row.amount_paise) / 100,
     occurredAt: row.occurred_at,
+    timeVerified: Boolean(row.time_verified),
     category: row.category,
     reviewStatus: row.review_status,
     context: row.context,
@@ -136,7 +148,9 @@ async function mergeVerifiedDuplicate(db, userId, row, input, source) {
   const verification = accountTag ? `Verified in ${accountTag}` : "Verified across statements";
   const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(row.source)].some((value) => incomingSources.has(value));
   const context = !crossSource || String(row.context || "").includes(verification) ? String(row.context || "") : [row.context, verification].filter(Boolean).join(" · ");
-  await db.prepare("UPDATE transactions SET source=?,account_tag=?,context=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(joinedSources(row.source, source), accountTag, context.slice(0, 1000), row.id, userId).run();
+  const occurredAt = input.timeVerified && !row.time_verified ? input.occurredAt : row.occurred_at;
+  const timeVerified = Boolean(row.time_verified) || input.timeVerified;
+  await db.prepare("UPDATE transactions SET source=?,account_tag=?,context=?,occurred_at=?,time_verified=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(joinedSources(row.source, source), accountTag, context.slice(0, 1000), occurredAt, timeVerified ? 1 : 0, row.id, userId).run();
   return row.id;
 }
 
@@ -179,14 +193,14 @@ async function syncMobile(db, user, payload) {
     const input = transactionInput(item, existing || {}); if (!input) continue;
     const model = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 }; const key = dedupeKey(model);
     if (existing) {
-      if (laterThan(updatedAt, existing.updated_at)) await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,source=?,account_tag=?,updated_at=? WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 120), input.accountTag, updatedAt, id, user.id).run();
+      if (laterThan(updatedAt, existing.updated_at)) await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,time_verified=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,source=?,account_tag=?,updated_at=? WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 120), input.accountTag, updatedAt, id, user.id).run();
     } else {
       const source = String(item.source || "ios").slice(0, 120);
       const duplicate = await db.prepare("SELECT * FROM transactions WHERE user_id=? AND dedupe_key=?").bind(user.id, key).first();
       if (duplicate) { aliases[id] = await mergeVerifiedDuplicate(db, user.id, duplicate, input, source); continue; }
       const verified = await verifiedDuplicate(db, user.id, input, source);
       if (verified) { aliases[id] = await mergeVerifiedDuplicate(db, user.id, verified, input, source); continue; }
-      await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,account_tag,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, source, input.accountTag, updatedAt, updatedAt).run();
+      await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,importance_score,dedupe_key,source,account_tag,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(model), key, source, input.accountTag, updatedAt, updatedAt).run();
     }
   }
   const [transactions, tombstones] = await Promise.all([
@@ -212,20 +226,23 @@ async function getPreferences(db, userId) {
   };
 }
 
-async function unresolvedSummary(db, userId) {
-  const row = await db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(MAX(amount_paise),0) AS highest FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0 AND is_recurring=0 AND is_own_transfer=0").bind(userId).first();
+async function unresolvedSummary(db, userId, window = { clauses: [], bindings: [] }) {
+  const predicate = ["user_id=?", "review_status='unresolved'", "is_reversed=0", "is_recurring=0", "is_own_transfer=0", ...window.clauses].join(" AND ");
+  const row = await db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(MAX(amount_paise),0) AS highest FROM transactions WHERE ${predicate}`).bind(userId, ...window.bindings).first();
   return { count: Number(row?.count || 0), amountPaise: Number(row?.amount || 0), highestAmountPaise: Number(row?.highest || 0) };
 }
 
-async function bootstrap(db, user) {
-  const [queue, preferences, summary, totals] = await Promise.all([
-    db.prepare("SELECT * FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0 ORDER BY importance_score DESC,occurred_at DESC LIMIT 50").bind(user.id).all(),
-    getPreferences(db, user.id), unresolvedSummary(db, user.id),
-    db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE user_id=?").bind(user.id).first(),
+async function bootstrap(db, user, url) {
+  const window = dateWindow(url); const windowPredicate = window.clauses.length ? ` AND ${window.clauses.join(" AND ")}` : "";
+  const [queue, preferences, summary, totals, allSummary] = await Promise.all([
+    db.prepare(`SELECT * FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0${windowPredicate} ORDER BY importance_score DESC,occurred_at DESC LIMIT 2000`).bind(user.id, ...window.bindings).all(),
+    getPreferences(db, user.id), unresolvedSummary(db, user.id, window),
+    db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE user_id=?${windowPredicate}`).bind(user.id, ...window.bindings).first(),
+    unresolvedSummary(db, user.id),
   ]);
   const today = localDate(preferences.timezone);
-  await db.prepare("INSERT INTO daily_reviews (id,user_id,review_date,state,unresolved_count,unresolved_amount_paise) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,review_date) DO UPDATE SET unresolved_count=excluded.unresolved_count,unresolved_amount_paise=excluded.unresolved_amount_paise,updated_at=CURRENT_TIMESTAMP").bind(crypto.randomUUID(), user.id, today, summary.count ? "scheduled" : "not_required", summary.count, summary.amountPaise).run();
-  return { user, transactions: queue.results.map(mapTransaction), preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) } };
+  await db.prepare("INSERT INTO daily_reviews (id,user_id,review_date,state,unresolved_count,unresolved_amount_paise) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,review_date) DO UPDATE SET unresolved_count=excluded.unresolved_count,unresolved_amount_paise=excluded.unresolved_amount_paise,updated_at=CURRENT_TIMESTAMP").bind(crypto.randomUUID(), user.id, today, allSummary.count ? "scheduled" : "not_required", allSummary.count, allSummary.amountPaise).run();
+  return { user, transactions: queue.results.map(mapTransaction), preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) }, window: { from: window.from, to: window.to } };
 }
 
 async function importTransactions(db, user, payload) {
@@ -241,7 +258,7 @@ async function importTransactions(db, user, payload) {
       const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(matched.source)].some((value) => incomingSources.has(value));
       await mergeVerifiedDuplicate(db, user.id, matched, input, source); if (crossSource) verified++; else duplicates++; continue;
     }
-    const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, importance(transaction), dedupeKey(transaction), source, input.accountTag).run();
+    const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, importance(transaction), dedupeKey(transaction), source, input.accountTag).run();
     imported += Number(result.meta?.changes || 0);
     if (!result.meta?.changes) duplicates++;
   }
@@ -261,6 +278,7 @@ function transactionInput(payload, existing = {}) {
     merchant,
     amountPaise,
     occurredAt,
+    timeVerified: typeof payload.timeVerified === "boolean" ? payload.timeVerified : Boolean(existing.time_verified),
     description: String(payload.description ?? existing.description ?? "").slice(0, 300),
     category: String(payload.category ?? existing.category ?? "Uncategorised").slice(0, 80),
     context: String(payload.context ?? existing.context ?? "").slice(0, 1000),
@@ -283,6 +301,7 @@ async function listTransactions(db, user, url) {
     where.push("LOWER(merchant || ' ' || COALESCE(description,'') || ' ' || COALESCE(context,'') || ' ' || COALESCE(account_tag,'')) LIKE ? ESCAPE '\\'");
     bindings.push(`%${escaped}%`);
   }
+  const window = dateWindow(url); where.push(...window.clauses); bindings.push(...window.bindings);
   const predicate = where.join(" AND "); const offset = (page - 1) * pageSize;
   const [rows, summary, categories] = await Promise.all([
     db.prepare(`SELECT * FROM transactions WHERE ${predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?`).bind(...bindings, pageSize, offset).all(),
@@ -298,7 +317,7 @@ async function createTransaction(db, user, payload) {
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
   const id = crypto.randomUUID();
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
-  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual", input.accountTag).run();
+  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual", input.accountTag).run();
   if (!result.meta?.changes) return json({ error: "This transaction already exists" }, 409);
   await audit(db, user.id, "transaction.created", "transaction", id);
   const row = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
@@ -312,7 +331,7 @@ async function replaceTransaction(db, user, id, payload) {
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
   try {
-    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,account_tag=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), input.accountTag, id, user.id).run();
+    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,time_verified=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,account_tag=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), input.accountTag, id, user.id).run();
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) return json({ error: "This edit would duplicate another transaction" }, 409);
     throw error;
@@ -330,21 +349,36 @@ async function deleteTransaction(db, user, id) {
   return json({ deleted: true });
 }
 
-async function getInsights(db, user) {
+async function getInsights(db, user, url) {
+  const window = dateWindow(url); const predicate = ["user_id=?", ...window.clauses].join(" AND "); const bindings = [user.id, ...window.bindings];
   const [categories, days, status, totals, largest] = await Promise.all([
-    db.prepare("SELECT COALESCE(category,'Uncategorised') AS category,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY category ORDER BY amount DESC LIMIT 8").bind(user.id).all(),
-    db.prepare("SELECT substr(occurred_at,1,10) AS day,SUM(amount_paise) AS amount FROM transactions WHERE user_id=? GROUP BY day ORDER BY day DESC LIMIT 14").bind(user.id).all(),
-    db.prepare("SELECT review_status AS status,COUNT(*) AS count FROM transactions WHERE user_id=? GROUP BY review_status").bind(user.id).all(),
-    db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(AVG(amount_paise),0) AS average FROM transactions WHERE user_id=?").bind(user.id).first(),
-    db.prepare("SELECT merchant,amount_paise,category FROM transactions WHERE user_id=? ORDER BY amount_paise DESC LIMIT 1").bind(user.id).first(),
+    db.prepare(`SELECT COALESCE(category,'Uncategorised') AS category,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE ${predicate} GROUP BY category ORDER BY amount DESC LIMIT 8`).bind(...bindings).all(),
+    db.prepare(`SELECT substr(occurred_at,1,10) AS day,SUM(amount_paise) AS amount FROM transactions WHERE ${predicate} GROUP BY day ORDER BY day DESC LIMIT 366`).bind(...bindings).all(),
+    db.prepare(`SELECT review_status AS status,COUNT(*) AS count FROM transactions WHERE ${predicate} GROUP BY review_status`).bind(...bindings).all(),
+    db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(AVG(amount_paise),0) AS average FROM transactions WHERE ${predicate}`).bind(...bindings).first(),
+    db.prepare(`SELECT merchant,amount_paise,category FROM transactions WHERE ${predicate} ORDER BY amount_paise DESC LIMIT 1`).bind(...bindings).first(),
   ]);
   return json({
     categories: categories.results.map((row) => ({ name: row.category, amountPaise: Number(row.amount), count: Number(row.count) })),
     days: days.results.reverse().map((row) => ({ day: row.day, amountPaise: Number(row.amount) })),
     statuses: status.results.map((row) => ({ status: row.status, count: Number(row.count) })),
     totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0), averagePaise: Number(totals?.average || 0) },
-    largest: largest ? { merchant: largest.merchant, amountPaise: Number(largest.amount_paise), category: largest.category } : null,
+    largest: largest ? { merchant: largest.merchant, amountPaise: Number(largest.amount_paise), category: largest.category } : null, window: { from: window.from, to: window.to },
   });
+}
+
+async function resetFinancialData(db, user) {
+  const rows = await db.prepare("SELECT id FROM transactions WHERE user_id=?").bind(user.id).all(); const deletedAt = timestamp();
+  const tombstones = rows.results.map((row) => db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=excluded.deleted_at").bind(user.id, row.id, deletedAt));
+  if (tombstones.length) await db.batch(tombstones);
+  await db.batch([
+    db.prepare("DELETE FROM transactions WHERE user_id=?").bind(user.id),
+    db.prepare("DELETE FROM review_groups WHERE user_id=?").bind(user.id),
+    db.prepare("DELETE FROM daily_reviews WHERE user_id=?").bind(user.id),
+    db.prepare("DELETE FROM notification_deliveries WHERE user_id=?").bind(user.id),
+  ]);
+  await audit(db, user.id, "financial_data.reset", "transaction", null, { deleted: rows.results.length });
+  return json({ reset: true, deleted: rows.results.length });
 }
 
 async function updateTransaction(db, user, id, payload) {
@@ -485,15 +519,16 @@ async function handleApi(request, env, url) {
   await upsertUser(env.DB, user);
   if (request.method === "GET" && url.pathname === "/api/mobile/authorize") return authorizeMobile(env, user, url);
   if (request.method === "GET" && url.pathname === "/api/mobile/devices") { const rows = await env.DB.prepare("SELECT id,device_name,created_at,last_used_at FROM mobile_sessions WHERE user_id=? AND revoked_at IS NULL ORDER BY last_used_at DESC").bind(user.id).all(); return json({ devices: rows.results }); }
-  if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user));
+  if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user, url));
   if (request.method === "GET" && url.pathname === "/api/transactions") return listTransactions(env.DB, user, url);
+  if (request.method === "DELETE" && url.pathname === "/api/transactions") return resetFinancialData(env.DB, user);
   if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
   if (request.method === "POST" && url.pathname === "/api/transactions/import") return importTransactions(env.DB, user, await request.json());
-  if (request.method === "GET" && url.pathname === "/api/insights") return getInsights(env.DB, user);
+  if (request.method === "GET" && url.pathname === "/api/insights") return getInsights(env.DB, user, url);
   if (request.method === "POST" && url.pathname === "/api/reviews/batch") return batchExplain(env.DB, user, await request.json());
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/export") {
-    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,category,review_status,context,source,account_tag FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
+    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,source,account_tag FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
     return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results });
   }
   if (request.method === "DELETE" && url.pathname === "/api/account") {

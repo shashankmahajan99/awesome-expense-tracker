@@ -28,7 +28,7 @@ function statusLabel(status) {
 
 function updateCategorySuggestions(values = []) {
   availableCategories = [...new Set([...defaultCategories, ...values].map((value) => String(value || "").trim()).filter((value) => value && value.toLowerCase() !== "uncategorised"))].sort((left, right) => left.localeCompare(right));
-  $("#categories").replaceChildren(...availableCategories.map((value) => { const option = document.createElement("option"); option.value = value; return option; })); renderCategoryMenu();
+  renderCategoryMenu();
 }
 
 function renderCategoryMenu(query = "") {
@@ -49,7 +49,7 @@ function render(data) {
     const merchant = document.createElement("span"); merchant.className = "ledger-merchant";
     const icon = document.createElement("i"); icon.textContent = item.merchant.slice(0, 2).toUpperCase();
     const copy = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = item.merchant;
-    const date = document.createElement("small"); const occurred = new Date(item.occurredAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }); date.textContent = item.accountTag ? `${occurred} · ${item.accountTag}` : occurred;
+    const date = document.createElement("small"); const dateOptions = item.timeVerified ? { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }; const occurred = new Date(item.occurredAt).toLocaleString("en-IN", dateOptions); date.textContent = item.accountTag ? `${occurred} · ${item.accountTag}` : occurred;
     copy.append(strong, date); merchant.append(icon, copy);
     const category = document.createElement("span"); category.textContent = item.category || "Uncategorised";
     const status = document.createElement("span"); const pill = document.createElement("i"); pill.className = `status-tag ${item.reviewStatus}`; pill.textContent = statusLabel(item.reviewStatus); status.append(pill);
@@ -78,8 +78,9 @@ function showLedgerLoading() {
   }
 }
 
-function toLocalDate(value) {
-  const date = new Date(value); const offset = date.getTimezoneOffset(); return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
+function localDateParts(value, timeVerified = true) {
+  const date = new Date(value); const offset = date.getTimezoneOffset(); const local = new Date(date.getTime() - offset * 60000).toISOString();
+  return { date: local.slice(0, 10), time: timeVerified ? local.slice(11, 16) : "" };
 }
 
 function openEditor(item = null) {
@@ -88,17 +89,18 @@ function openEditor(item = null) {
   $("#delete-transaction").hidden = !item;
   if (item) {
     form.elements.merchant.value = item.merchant; form.elements.amount.value = item.amount;
-    form.elements.occurredAt.value = toLocalDate(item.occurredAt); form.elements.category.value = item.category && item.category.toLowerCase() !== "uncategorised" ? item.category : "";
+    const occurred = localDateParts(item.occurredAt, item.timeVerified); form.elements.occurredDate.value = occurred.date; form.elements.occurredTime.value = occurred.time;
+    form.elements.category.value = item.category && item.category.toLowerCase() !== "uncategorised" ? item.category : "";
     form.elements.accountTag.value = item.accountTag || "";
     form.elements.reviewStatus.value = item.reviewStatus; form.elements.description.value = item.description || ""; form.elements.context.value = item.context || "";
-  } else form.elements.occurredAt.value = toLocalDate(new Date());
+  } else { const occurred = localDateParts(new Date()); form.elements.occurredDate.value = occurred.date; form.elements.occurredTime.value = occurred.time; }
   dialog.showModal(); setTimeout(() => form.elements.merchant.focus(), 0);
 }
 
 async function load() {
   const sequence = ++loadSequence; showLedgerLoading();
   try {
-    const params = new URLSearchParams({ page: String(currentPage), pageSize: String(pageSize), search: $("#transaction-search").value.trim(), status: $("#status-filter").value, category: $("#category-filter").value });
+    const params = new URLSearchParams({ page: String(currentPage), pageSize: String(pageSize), search: $("#transaction-search").value.trim(), status: $("#status-filter").value, category: $("#category-filter").value }); window.PaisaDateWindow.query($("#transactions-date-window")).forEach((value, key) => params.set(key, value));
     const data = await api(`/api/transactions?${params}`); if (sequence !== loadSequence) return;
     if (currentPage > data.pages) { currentPage = data.pages; return load(); }
     transactions = data.transactions;
@@ -121,6 +123,7 @@ $("#transaction-search").addEventListener("input", () => { clearTimeout(searchTi
 [$("#status-filter"), $("#category-filter")].forEach((input) => input.addEventListener("change", () => { currentPage = 1; load(); }));
 $("#ledger-previous").addEventListener("click", () => { if (currentPage > 1) { currentPage--; load(); } });
 $("#ledger-next").addEventListener("click", () => { if (currentPage < totalPages) { currentPage++; load(); } });
+window.PaisaDateWindow.setup($("#transactions-date-window"), () => { currentPage = 1; load(); });
 document.querySelectorAll("[data-add-transaction]").forEach((button) => button.addEventListener("click", () => openEditor()));
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => dialog.close()));
 dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
@@ -131,6 +134,8 @@ document.addEventListener("click", (event) => { if (!event.target.closest(".cate
 form.addEventListener("submit", async (event) => {
   event.preventDefault(); const values = Object.fromEntries(new FormData(form)); const id = values.id; delete values.id;
   values.category = String(values.category || "").trim() || "Uncategorised";
+  const localTimestamp = `${values.occurredDate}T${values.occurredTime || "12:00"}:00`; const parsedDate = new Date(localTimestamp);
+  values.occurredAt = parsedDate.toISOString(); values.timeVerified = Boolean(values.occurredTime); delete values.occurredDate; delete values.occurredTime;
   const button = $("#save-transaction"); button.disabled = true; button.textContent = "Saving…";
   try {
     await api(id ? `/api/transactions/${encodeURIComponent(id)}` : "/api/transactions", { method: id ? "PUT" : "POST", body: JSON.stringify(values) });
@@ -145,4 +150,3 @@ $("#delete-transaction").addEventListener("click", async () => {
 });
 $("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
 updateCategorySuggestions();
-load();

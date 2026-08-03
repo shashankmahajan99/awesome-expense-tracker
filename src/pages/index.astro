@@ -2,6 +2,7 @@
 import BaseHead from "../components/BaseHead.astro";
 import AppSidebar from "../components/AppSidebar.astro";
 import AppTopbar from "../components/AppTopbar.astro";
+import DateWindow from "../components/DateWindow.astro";
 ---
 
 <!doctype html>
@@ -15,6 +16,7 @@ import AppTopbar from "../components/AppTopbar.astro";
 
       <main id="top">
         <AppTopbar title="Good evening." subtitle="YOUR DAILY FINANCIAL INBOX" action="review" />
+        <div class="dashboard-window"><DateWindow id="dashboard-date-window" /></div>
 
         <section class="hero" id="overview">
           <div class="hero-copy">
@@ -71,6 +73,7 @@ import AppTopbar from "../components/AppTopbar.astro";
           <div class="prompt"><span>✦</span><p><strong id="review-question">What was this payment for?</strong><small id="review-hint">It’s larger than your usual Amazon purchase.</small></p></div>
           <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
           <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and review next payment"><span>✓</span></button></label>
+          <label class="review-category"><span>Category</span><select id="review-category"></select><input id="review-category-custom" type="text" placeholder="Type a new category" hidden /></label>
           <div class="quick-actions"><button type="button" data-action="known">Known / repeat</button><button type="button" data-action="group">Group with another</button><button type="button" data-action="skip">Skip for now</button></div>
         </div>
         <p class="keyboard-hint">Press <kbd>Enter</kbd> to save · <kbd>S</kbd> to skip · <kbd>Esc</kbd> to close</p>
@@ -104,7 +107,7 @@ import AppTopbar from "../components/AppTopbar.astro";
         </div>
         <label class="toggle-row"><span><strong>Sunday cleanup</strong><small>Show a weekly catch-up only when missing context affects your insights.</small></span><input name="weeklyCleanup" type="checkbox" checked /><i></i></label>
         <div class="preference-note"><span>♢</span><p><strong>Anti-annoyance rules are always on.</strong><small>No repeated evening alerts, known EMIs, reversals, refunds, or reminders after you’ve already reviewed.</small></p></div>
-        <div class="data-controls"><div><strong>Your data</strong><small>Download a portable copy or permanently delete your Paisa records.</small></div><span><button type="button" id="export-data">Export</button><button type="button" id="delete-account">Delete account</button></span></div>
+        <div class="data-controls"><div><strong>Your data</strong><small>Download a copy, clear transactions for a fresh import, or delete the account.</small></div><span><button type="button" id="export-data">Export</button><button type="button" id="reset-financial-data">Clear transactions</button><button type="button" id="delete-account">Delete account</button></span></div>
         <div class="sheet-actions"><button class="secondary-button" type="button" data-close-preferences>Cancel</button><button class="primary-button" type="submit">Save preferences</button></div>
       </form>
     </dialog>
@@ -129,6 +132,6 @@ import AppTopbar from "../components/AppTopbar.astro";
 
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
-    <script is:inline src="/client.js"></script>
+    <script is:inline src="/date-window.js"></script><script is:inline src="/client.js"></script>
   </body>
 </html>

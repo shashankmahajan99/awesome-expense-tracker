@@ -65,7 +65,7 @@ struct ReviewView: View {
                 PaisaCard {
                     Text(PaisaFormat.amount(item.amount)).font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(PaisaTheme.ink)
                     Text(item.merchant).font(.title2.bold()).foregroundStyle(PaisaTheme.ink)
-                    Text([item.accountTag, item.occurredAt.formatted(.dateTime.day().month().hour().minute())].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
+                    Text([item.accountTag, PaisaFormat.transactionDate(item.occurredAt, timeVerified: item.timeVerified)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("What was this payment for?").font(.headline).foregroundStyle(PaisaTheme.ink)
