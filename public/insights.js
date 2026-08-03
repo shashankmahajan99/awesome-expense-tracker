@@ -4,7 +4,16 @@ const colors = ["#df8b65", "#5f8f87", "#d4a646", "#7685a8", "#8eaa73", "#b67e9c"
 
 async function api(path) { const response = await fetch(path); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Request failed"); return data; }
 
+function showLoading() {
+  const line = (classes) => `<span class="skeleton-line ${classes}"></span>`;
+  [["#insight-total", "metric-line"], ["#insight-count", "medium"], ["#insight-average", "metric-line"], ["#insight-understood", "metric-line"], ["#insight-unresolved", "medium"]].forEach(([selector, classes]) => { $(selector).innerHTML = line(classes); });
+  const bars = $("#daily-bars"); bars.classList.add("insight-skeleton-bars"); bars.setAttribute("aria-busy", "true"); bars.innerHTML = [34, 58, 42, 76, 52, 88, 64].map((height) => `<div><small>${line("short")}</small><i style="height:${height}%"></i>${line("tiny")}</div>`).join("");
+  const categories = $("#insight-categories"); categories.setAttribute("aria-busy", "true"); categories.innerHTML = Array.from({ length: 4 }, () => `<div class="insight-category insight-category-skeleton"><div>${line("medium")}${line("short")}</div><div><i></i></div></div>`).join("");
+  const health = $("#review-health"); health.setAttribute("aria-busy", "true"); health.innerHTML = Array.from({ length: 3 }, () => `<div class="review-health-skeleton">${line("medium")}${line("short")}</div>`).join("");
+}
+
 async function load() {
+  showLoading();
   try {
     const query = window.PaisaDateWindow.query($("#insights-date-window")).toString(); const suffix = query ? `?${query}` : "";
     const [data, bootstrap] = await Promise.all([api(`/api/insights${suffix}`), api(`/api/bootstrap${suffix}`)]);

@@ -31,12 +31,14 @@ struct TransactionsView: View {
     @State private var editing: PaisaTransaction?
     @State private var addNew = false
     @State private var dateWindow: PaisaDateWindow = .all
+    @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
+    @State private var customTo = Date.now
     @State private var selecting = false
     @State private var selectedIDs = Set<UUID>()
-    private var filtered: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) && (search.isEmpty || "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search)) } }
+    private var filtered: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt, customFrom: customFrom, customTo: customTo) && (search.isEmpty || "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search)) } }
     var body: some View {
         List {
-            Section { HStack { Label("Showing", systemImage: "calendar"); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) } }
+            Section { PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo) }
             ForEach(filtered) { item in
                 HStack(spacing: 8) {
                     if selecting { Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selectedIDs.contains(item.id) ? PaisaTheme.forest : PaisaTheme.muted) }
@@ -103,14 +105,15 @@ struct TransactionEditor: View {
 struct InsightsView: View {
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var transactions: [PaisaTransaction]
     @State private var dateWindow: PaisaDateWindow = .all
-    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) } }
+    @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
+    @State private var customTo = Date.now
+    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt, customFrom: customFrom, customTo: customTo) } }
     private var total: Double { visible.reduce(0) { $0 + $1.amount } }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PaisaEyebrow(text: "Spending snapshot")
-                HStack { Label("Date window", systemImage: "calendar").foregroundStyle(PaisaTheme.muted); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) }
-                    .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Total tracked").font(.subheadline).foregroundStyle(.white.opacity(0.7))
                     Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
@@ -140,8 +143,7 @@ struct SettingsView: View {
     @EnvironmentObject private var sync: SyncManager
     @EnvironmentObject private var notifications: NotificationManager
     private let webURL = URL(string: "https://paisa-daily-inbox.shashankmahajan.chatgpt.site")!
-    @State private var confirmLocalDelete = false
-    @State private var confirmCloudDelete = false
+    @State private var confirmDelete = false
     @State private var dataMessage = ""
 
     var body: some View {
@@ -191,8 +193,8 @@ struct SettingsView: View {
                 Label("Statements are parsed on device", systemImage: "lock.shield")
                 Label("Sync tokens stay in Keychain", systemImage: "key")
                 Link("Open web dashboard", destination: webURL)
-                Button("Delete data from this iPhone", role: .destructive) { confirmLocalDelete = true }
-                if sync.connected { Button("Delete transactions everywhere", role: .destructive) { confirmCloudDelete = true }.disabled(sync.isWorking) }
+                Button("Delete all transactions", role: .destructive) { confirmDelete = true }.disabled(!sync.connected || sync.isWorking)
+                if !sync.connected { Text("Connect to Paisa Inbox before deleting so the same data is removed from every device.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !dataMessage.isEmpty { Text(dataMessage).font(.caption).foregroundStyle(PaisaTheme.muted) }
             }
         }
@@ -202,11 +204,7 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .alert("Delete local data?", isPresented: $confirmLocalDelete) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete from iPhone", role: .destructive) { do { let count = try sync.deleteLocalTransactions(context: context); dataMessage = "Deleted \(count) local transaction\(count == 1 ? "" : "s")." } catch { dataMessage = error.localizedDescription } }
-        } message: { Text("Cloud transactions remain available and will return on the next sync.") }
-        .alert("Delete transactions everywhere?", isPresented: $confirmCloudDelete) {
+        .alert("Delete all transactions everywhere?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) { }
             Button("Delete everywhere", role: .destructive) { Task { do { let count = try await sync.deleteCloudTransactions(context: context); dataMessage = "Deleted \(count) transaction\(count == 1 ? "" : "s") everywhere." } catch { dataMessage = error.localizedDescription } } }
         } message: { Text("This permanently removes cloud and local transaction history. Your sign-in and preferences remain.") }

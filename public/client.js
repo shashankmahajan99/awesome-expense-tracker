@@ -34,16 +34,32 @@ function setButtonLoading(button, loading) {
   button.disabled = loading; button.classList.toggle("button-loading", loading); button.setAttribute("aria-busy", String(loading));
 }
 
+function categorySuggestion(value = "") {
+  const text = String(value).toLowerCase();
+  const rules = [
+    ["Food & dining", /zomato|swiggy|restaurant|cafe|coffee|domino|pizza|burger|kitchen/],
+    ["Groceries", /blinkit|zepto|bigbasket|instamart|grocery|supermarket/],
+    ["Travel", /uber|ola|rapido|metro|railway|irctc|airlines|flight|petrol|diesel|fuel|indian oil|parking|toll/],
+    ["Shopping", /amazon|flipkart|myntra|ajio|retail|store/],
+    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi/],
+    ["Health", /hospital|pharmacy|medical|apollo|doctor|clinic|medicine/],
+    ["Entertainment", /netflix|spotify|hotstar|cinema|bookmyshow|gaming/],
+  ];
+  return rules.find(([, pattern]) => pattern.test(text))?.[0] || "Uncategorised";
+}
+
 function mapTransaction(transaction, index) {
   const merchant = transaction.merchant || "Unknown payment";
+  const storedCategory = transaction.category || "Uncategorised";
+  const category = storedCategory.toLowerCase() === "uncategorised" ? categorySuggestion(`${merchant} ${transaction.description || ""}`) : storedCategory;
   const dateOptions = transaction.timeVerified ? { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" };
   return {
     id: String(transaction.id), merchant,
     meta: new Date(transaction.occurredAt).toLocaleString("en-IN", dateOptions),
     amount: formatter.format(Number(transaction.amountPaise || 0) / 100),
     icon: merchant.slice(0, 2).toUpperCase(), tone: tones[index % tones.length],
-    status: "Needs context", detail: transaction.category ? `Likely ${transaction.category}` : "Category uncertain",
-    occurredAt: transaction.occurredAt, timeVerified: Boolean(transaction.timeVerified), amountPaise: Number(transaction.amountPaise || 0), category: transaction.category,
+    status: "Needs context", detail: category.toLowerCase() !== "uncategorised" ? `Suggested category: ${category}` : "Choose a category or add a quick note",
+    occurredAt: transaction.occurredAt, timeVerified: Boolean(transaction.timeVerified), amountPaise: Number(transaction.amountPaise || 0), category,
     description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus, accountTag: transaction.accountTag || "",
   };
 }
@@ -86,11 +102,12 @@ function renderReview() {
   current = Math.min(current, items.length - 1);
   const item = items[current];
   $("#review-position").textContent = String(current + 1); $("#review-total").textContent = String(items.length);
+  $("#review-previous").disabled = current <= 0; $("#review-next").disabled = current >= items.length - 1;
   $("#review-progress").style.width = `${((current + 1) / items.length) * 100}%`;
   $("#review-icon").textContent = item.icon; $("#review-icon").className = `merchant-icon ${item.tone} large`;
   $("#review-meta").textContent = item.meta.toUpperCase(); $("#review-amount").textContent = item.amount; $("#review-merchant").textContent = item.merchant;
-  $("#review-question").textContent = item.merchant === "Indian Oil" ? "Was this fuel for your Kushaq?" : "What was this payment for?";
-  $("#review-hint").textContent = item.detail; $("#answer-input").value = "";
+  $("#review-question").textContent = item.merchant === "Indian Oil" ? "Was this fuel or travel?" : `What should you remember about ${item.merchant}?`;
+  $("#review-hint").textContent = item.category && item.category.toLowerCase() !== "uncategorised" ? `We suggested ${item.category}. Change it if needed, then add an optional note.` : "Choose a category. Add a note only if it will help you understand this later."; $("#answer-input").value = item.context || "";
   populateReviewCategories(item.category);
 }
 
@@ -106,6 +123,8 @@ function openReview(id) {
   if (id) current = Math.max(0, items.findIndex((item) => item.id === String(id)));
   renderReview(); dialogs.review?.showModal();
 }
+
+function moveReview(direction) { if (!items.length || reviewSaving) return; current = Math.max(0, Math.min(items.length - 1, current + direction)); stopVoice(); renderReview(); }
 
 async function resolveCurrent(action, message, context = "") {
   const item = items[current];
@@ -188,6 +207,25 @@ function renderDashboardInsights(insights) {
   $("#focus-detail").textContent = topCategory ? `${topCategory.count} payment${topCategory.count === 1 ? "" : "s"} make it your largest tracked category.` : "Paisa Inbox will turn your imported statement into a clear daily inbox.";
 }
 
+function showDashboardLoading() {
+  const line = (classes) => `<span class="skeleton-line ${classes}"></span>`;
+  $("#hero-title").innerHTML = `${line("hero-heading")}${line("hero-heading medium")}`;
+  $("#hero-summary").innerHTML = `${line("wide")}${line("medium")}`;
+  $("#review-estimate").innerHTML = line("short");
+  $$('[data-open-review]').forEach((button) => { button.disabled = true; button.classList.add("loading-control"); });
+  [["#tracked-total", "metric-line"], ["#understood-percent", "metric-line"], ["#largest-payment", "metric-line"], ["#tracked-count", "medium"], ["#understood-detail", "medium"], ["#largest-detail", "medium"]].forEach(([selector, classes]) => { $(selector).innerHTML = line(classes); });
+  [["#visual-total", "skeleton-disc"], ["#visual-understood", "skeleton-disc small"], ["#visual-largest", "skeleton-disc small"], ["#visual-unresolved", "skeleton-disc small"]].forEach(([selector, classes]) => { $(selector).innerHTML = `<i class="${classes}"></i>`; });
+  $("#transaction-list").setAttribute("aria-busy", "true");
+  $("#transaction-list").innerHTML = Array.from({ length: 4 }, () => `<div class="transaction skeleton-row" aria-hidden="true"><span class="skeleton-avatar"></span><span>${line("medium")}${line("short")}</span><span>${line("medium")}${line("short")}</span>${line("amount-line")}</div>`).join("");
+  $("#snapshot-total").innerHTML = line("metric-line"); $("#snapshot-caption").innerHTML = line("short");
+  $("#snapshot-bars").classList.add("skeleton-bars"); $("#snapshot-bars").setAttribute("aria-busy", "true");
+  $("#snapshot-bars").innerHTML = [30, 52, 42, 69, 55, 82, 64].map((height) => `<div><i style="height:${height}%"></i>${line("tiny")}</div>`).join("");
+  $("#snapshot-note").innerHTML = `<span>✦</span><p>${line("wide")}${line("medium")}</p>`;
+  $("#dashboard-categories").setAttribute("aria-busy", "true");
+  $("#dashboard-categories").innerHTML = Array.from({ length: 4 }, () => `<div class="category skeleton-category"><div><span class="skeleton-dot"></span>${line("medium")}${line("short")}</div><div class="track"><i></i></div></div>`).join("");
+  $("#focus-title").innerHTML = `${line("wide dark")}${line("medium dark")}`; $("#focus-detail").innerHTML = `${line("wide dark")}${line("medium dark")}`;
+}
+
 function populatePreferences(value) {
   if (!value) return;
   const form = $("#preferences-form");
@@ -258,22 +296,11 @@ function statementDate(value) {
   return build(Number(match[3].length === 2 ? `20${match[3]}` : match[3]), Number(match[2]), Number(match[1]));
 }
 
-function parseStatementText(lines, file) {
-  const ignored = /opening balance|closing balance|available balance|total debit|total credit|statement summary|page \d|date narration|account number|customer id/i;
-  const candidates = []; const accountTag = accountTagFor(file.name, lines.slice(0, 80).join(" ")); const source = importSource(file.name, accountTag);
-  for (const raw of lines) {
-    const line = raw.replace(/\s+/g, " ").trim(); const date = statementDate(line); if (!date || ignored.test(line)) continue;
-    if (/\b(?:CR|credit|deposit)\b/i.test(line) && !/\b(?:DR|debit|withdrawal|paid|sent)\b/i.test(line)) continue;
-    const amountMatches = [...line.matchAll(/(?:₹|INR|Rs\.?)?\s*([0-9][0-9,]*\.\d{2})(?=\s|$|Cr|Dr)/gi)]; if (!amountMatches.length) continue;
-    const match = amountMatches[0]; const amount = Number(match[1].replaceAll(",", "")); if (!amount || amount > 100000000) continue;
-    let merchant = line.replace(/\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{1,2}[- ](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ]\d{2,4})\b/i, "");
-    for (const amountMatch of [...amountMatches].reverse()) merchant = merchant.replace(amountMatch[0], " ");
-    merchant = merchant.replace(/\b(?:DR|CR|debit|credit|withdrawal)\b/gi, "").replace(/\b(?:UPI|IMPS|NEFT|POS|ECOM|VPS|IPS|ATM|REF|TXN)\b[:/ -]*/gi, " ").replace(/\s+/g, " ").trim();
-    merchant = merchant.replace(/^[|:\-\s]+|[|:\-\s]+$/g, "").slice(0, 160); if (!merchant || /^\d+$/.test(merchant)) continue;
-    const reference = line.match(/(?:UTR|UPI ref|reference|ref no|transaction id|order id)[:\s-]*([A-Z0-9-]{6,40})/i)?.[1] || "";
-    candidates.push({ occurredAt: date.occurredAt, timeVerified: date.timeVerified, merchant, description: `${line.slice(0, 240)}${reference ? ` · Reference: ${reference}` : ""}`, amount, category: "Uncategorised", accountTag, sourceFile: file.name, source, reference });
-  }
-  return { rows: candidates, accountTag, detail: `${candidates.length} debit rows · ${lines.length} text rows examined` };
+async function parseStatementText(lines, file) {
+  const { parseStatementRecords } = await import("/statement-parser.mjs");
+  const accountTag = accountTagFor(file.name, lines.slice(0, 80).join(" ")); const source = importSource(file.name, accountTag);
+  const rows = parseStatementRecords(lines, { filename: file.name, accountTag, source, parseDate: statementDate });
+  return { rows, accountTag, detail: `${rows.length} debit rows · ${lines.length} text rows reconstructed` };
 }
 
 async function parsePDF(file, onProgress, password = "") {
@@ -294,10 +321,10 @@ async function parsePDF(file, onProgress, password = "") {
     const page = await document.getPage(pageNumber); const content = await page.getTextContent();
     const byLine = new Map();
     for (const item of content.items) { const y = Math.round(item.transform?.[5] || 0); if (!byLine.has(y)) byLine.set(y, []); byLine.get(y).push(item); }
-    [...byLine.entries()].sort((a, b) => b[0] - a[0]).forEach(([, itemsOnLine]) => lines.push(itemsOnLine.sort((a, b) => (a.transform?.[4] || 0) - (b.transform?.[4] || 0)).map((item) => item.str).join(" ")));
+    [...byLine.entries()].sort((a, b) => b[0] - a[0]).forEach(([, itemsOnLine]) => { const sorted = itemsOnLine.sort((a, b) => (a.transform?.[4] || 0) - (b.transform?.[4] || 0)); let line = "", right = 0; for (const item of sorted) { const x = item.transform?.[4] || 0; if (line && x - right > 18) line += " | "; else if (line) line += " "; line += item.str; right = x + (item.width || 0); } lines.push(line); });
     onProgress?.(pageNumber, document.numPages, `${lines.length} text rows detected`);
   }
-  return parseStatementText(lines, file);
+  return await parseStatementText(lines, file);
 }
 
 function renderImportFiles() {
@@ -339,8 +366,11 @@ async function loadDashboard() {
 
 $$('[data-open-review]').forEach((button) => button.addEventListener("click", () => openReview()));
 $$('[data-close-review]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.review.close(); }));
+$("#review-previous")?.addEventListener("click", () => moveReview(-1));
+$("#review-next")?.addEventListener("click", () => moveReview(1));
 $("#submit-answer")?.addEventListener("click", () => resolveCurrent("explain", "Review saved", $("#answer-input").value.trim()));
 $("#answer-input")?.addEventListener("keydown", (event) => { if (event.key === "Enter") resolveCurrent("explain", "Review saved", event.currentTarget.value.trim()); });
+dialogs.review?.addEventListener("keydown", (event) => { if (event.target?.matches("input,select,textarea")) return; if (event.key === "ArrowLeft") moveReview(-1); if (event.key === "ArrowRight") moveReview(1); });
 $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.action === "defer") resolveCurrent("defer", "Saved for later");
   else if (button.dataset.action === "known") resolveCurrent("known", "Marked as known");
@@ -386,7 +416,7 @@ $("#confirm-reset")?.addEventListener("click", async () => {
   const button = $("#confirm-reset"); button.disabled = true; button.textContent = "Clearing…";
   try { const result = await api("/api/transactions", { method: "DELETE" }); dialogs.reset.close(); dialogs.preferences.close(); items = []; syncQueue(); showToast(`${result.deleted} transactions cleared`, "You can now import statements with the updated parser"); await loadDashboard(); }
   catch (error) { showToast("Reset failed", error.message); }
-  finally { button.disabled = false; button.textContent = "Clear transactions"; }
+  finally { button.disabled = false; button.textContent = "Delete all transactions"; }
 });
 $("#delete-account")?.addEventListener("click", async () => {
   if (!window.confirm("Permanently delete all Paisa Inbox transactions, reviews, preferences, and audit data for this account? This cannot be undone.")) return;
@@ -435,4 +465,4 @@ if (["preferences", "import", "review"].some((key) => params.has(key))) history.
 if (params.has("preferences")) setTimeout(() => { populatePreferences(preferences); dialogs.preferences?.showModal(); }, 400);
 if (params.has("import")) dialogs.import?.showModal();
 if (params.has("review")) setTimeout(() => openReview(params.get("review")), 400);
-window.PaisaDateWindow.setup($("#dashboard-date-window"), () => loadDashboard());
+window.PaisaDateWindow.setup($("#dashboard-date-window"), () => { showDashboardLoading(); loadDashboard(); });

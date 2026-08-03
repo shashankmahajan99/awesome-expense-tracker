@@ -251,7 +251,27 @@ enum StatementDocumentParser {
         }
         guard !lines.isEmpty else { throw StatementImportError.noText }
         let accountTag = AccountTagDetector.detect(filename: filename, text: lines.prefix(80).joined(separator: " "))
-        return StatementParseResult(rows: parseStatementLines(lines, filename: filename, accountTag: accountTag), accountTag: accountTag)
+        let selectableRows = parseStatementLines(lines, filename: filename, accountTag: accountTag)
+        let datedLines = lines.filter { dateTextRange(in: $0) != nil }.count
+        // Some bank PDFs expose text column-by-column. That produces many dates
+        // but only one apparent transaction. In that case, OCR the rendered
+        // pages to recover visual row order and keep whichever parse is richer.
+        guard datedLines >= 4 && selectableRows.count < max(2, datedLines / 4) else {
+            return StatementParseResult(rows: selectableRows, accountTag: accountTag)
+        }
+        var visualLines: [String] = []
+        for pageIndex in 0..<document.pageCount {
+            let pageNumber = pageIndex + 1
+            progress(Double(pageIndex) / Double(document.pageCount), "Reconstructing table rows · page \(pageNumber) of \(document.pageCount)")
+            guard let page = document.page(at: pageIndex),
+                  let image = page.thumbnail(of: CGSize(width: 2200, height: 3000), for: .mediaBox).cgImage,
+                  let recognized = await recognizeText(image) else { continue }
+            visualLines.append(contentsOf: recognized.components(separatedBy: .newlines))
+        }
+        let visualTag = AccountTagDetector.detect(filename: filename, text: visualLines.prefix(80).joined(separator: " "))
+        let visualRows = parseStatementLines(visualLines, filename: filename, accountTag: visualTag)
+        progress(1, "Recovered \(max(selectableRows.count, visualRows.count)) debit transactions from \(filename)")
+        return visualRows.count > selectableRows.count ? StatementParseResult(rows: visualRows, accountTag: visualTag) : StatementParseResult(rows: selectableRows, accountTag: accountTag)
     }
 
     static func parseCSV(data: Data, filename: String) throws -> StatementParseResult {
@@ -286,41 +306,72 @@ enum StatementDocumentParser {
     }
 
     static func parseStatementLines(_ lines: [String], filename: String, accountTag: String) -> [StatementRow] {
-        let ignored = try? NSRegularExpression(pattern: "opening balance|closing balance|available balance|total debit|total credit|statement summary|account number|customer id|date narration", options: .caseInsensitive)
-        let amountRegex = try? NSRegularExpression(pattern: #"(?:₹|INR|Rs\.?)?\s*([0-9][0-9,]*(?:\.\d{1,2}))(?=\s|$|Cr|Dr|\|)"#, options: .caseInsensitive)
+        let amountRegex = try? NSRegularExpression(pattern: #"(?:₹|INR|Rs\.?)?\s*(-?[0-9][0-9,]*(?:\.\d{1,2}))(?=\s|$|Cr|Dr|\||D\b|C\b)"#, options: .caseInsensitive)
         let referenceRegex = try? NSRegularExpression(pattern: #"(?i)(?:UTR|UPI ref|reference|ref no|transaction id|order id)[:\s-]*([A-Z0-9-]{6,40})"#)
         let source = sourceKind(filename: filename, accountTag: accountTag)
-        var output: [StatementRow] = []
-        for raw in lines {
-            let line = raw.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let date = parseDateInfo(line), line.count > 8 else { continue }
+        var output: [StatementRow] = []; var seen = Set<String>()
+        for line in logicalStatementRecords(lines) {
+            guard let date = parseDateInfo(line) else { continue }
             let fullRange = NSRange(line.startIndex..., in: line)
-            if ignored?.firstMatch(in: line, range: fullRange) != nil { continue }
-            if line.range(of: #"\b(?:CR|credit|deposit)\b"#, options: [.regularExpression, .caseInsensitive]) != nil,
-               line.range(of: #"\b(?:DR|debit|withdrawal|paid|sent)\b"#, options: [.regularExpression, .caseInsensitive]) == nil { continue }
             let matches = amountRegex?.matches(in: line, range: fullRange) ?? []
-            let amounts = matches.compactMap { match -> (Double, Range<String.Index>)? in
-                guard let capture = Range(match.range(at: 1), in: line), let whole = Range(match.range, in: line), let value = parseAmount(String(line[capture])) else { return nil }
-                return (value, whole)
-            }.filter { $0.0 > 0 && $0.0 < 100_000_000 }
-            guard let selected = amounts.first else { continue }
+            let amounts = matches.compactMap { match -> (value: Double, range: NSRange)? in
+                guard let capture = Range(match.range(at: 1), in: line), let value = parseAmount(String(line[capture])) else { return nil }
+                return (abs(value), match.range)
+            }.filter { $0.value > 0 && $0.value < 100_000_000 }
+            var selected: (value: Double, range: NSRange)?
+            var creditMarked = false
+            for amount in amounts {
+                let tailStart = min((line as NSString).length, NSMaxRange(amount.range)); let tailLength = min(20, (line as NSString).length - tailStart)
+                let tail = (line as NSString).substring(with: NSRange(location: tailStart, length: tailLength))
+                let marker = tail.range(of: #"^\s*(?:\||-)?\s*(DR|D|DEBIT|CR|C|CREDIT)\b"#, options: [.regularExpression, .caseInsensitive]).map { String(tail[$0]).uppercased().replacingOccurrences(of: #"[^A-Z]"#, with: "", options: .regularExpression) }
+                if let marker, ["DR", "D", "DEBIT"].contains(marker) { selected = amount; break }
+                if let marker, ["CR", "C", "CREDIT"].contains(marker) { creditMarked = true; break }
+            }
+            if creditMarked { continue }
+            if selected == nil, line.range(of: #"\b(?:NEFT|IMPS|UPI)[-/ ]?(?:CR|CREDIT|INWARD)\b|\b(?:SALARY|INTEREST CREDIT|CASH DEPOSIT|REFUND|REVERSAL)\b"#, options: [.regularExpression, .caseInsensitive]) != nil,
+               line.range(of: #"\b(?:DR|DEBIT|PAID|PURCHASE|WITHDRAWAL)\b"#, options: [.regularExpression, .caseInsensitive]) == nil { continue }
+            guard let selected = selected ?? amounts.first else { continue }
             var merchant = line
-            if let dateRange = dateTextRange(in: merchant) { merchant.removeSubrange(dateRange) }
-            merchant = merchant.replacingOccurrences(of: #"(?:₹|INR|Rs\.?)?\s*[0-9][0-9,]*(?:\.\d{1,2})(?=\s|$|Cr|Dr|\|)"#, with: " ", options: [.regularExpression, .caseInsensitive])
-            merchant = cleanMerchant(merchant.replacingOccurrences(of: #"\b(?:DR|CR|debit|credit|withdrawal)\b"#, with: " ", options: [.regularExpression, .caseInsensitive]))
-            guard !merchant.isEmpty, !merchant.allSatisfy(\.isNumber) else { continue }
+            merchant = merchant.replacingOccurrences(of: #"\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[- ](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ]\d{2,4})\b"#, with: " ", options: [.regularExpression, .caseInsensitive])
+            merchant = merchant.replacingOccurrences(of: #"(?:₹|INR|Rs\.?)?\s*-?[0-9][0-9,]*(?:\.\d{1,2})(?=\s|$|Cr|Dr|\||D\b|C\b)"#, with: " ", options: [.regularExpression, .caseInsensitive])
+            merchant = cleanMerchant(merchant.replacingOccurrences(of: #"\b(?:DR|CR|DEBIT|CREDIT|D|C)\b|\|"#, with: " ", options: [.regularExpression, .caseInsensitive]))
+            if merchant.isEmpty || merchant.allSatisfy(\.isNumber) { merchant = "Bank payment" }
             let reference: String
             if let match = referenceRegex?.firstMatch(in: line, range: fullRange), let range = Range(match.range(at: 1), in: line) { reference = String(line[range]) }
             else { reference = "" }
-            output.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: String(merchant.prefix(160)), amount: selected.0, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
+            let key = "\(Calendar.current.startOfDay(for: date.date).timeIntervalSince1970)|\(selected.value)|\(reference.lowercased())|\(merchant.lowercased())"
+            guard seen.insert(key).inserted else { continue }
+            output.append(StatementRow(date: date.date, timeVerified: date.timeVerified, merchant: String(merchant.prefix(160)), amount: selected.value, accountTag: accountTag, sourceFile: filename, sourceKind: source, reference: reference))
         }
         return output
+    }
+
+    private static func logicalStatementRecords(_ lines: [String]) -> [String] {
+        let ignored = try? NSRegularExpression(pattern: "opening balance|closing balance|available balance|total debit|total credit|statement summary|page \\d|account number|customer id|date\\s+(?:narration|transaction)|transaction details.*balance", options: .caseInsensitive)
+        var records: [String] = []; var current = ""
+        for raw in lines {
+            let line = raw.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }; let range = NSRange(line.startIndex..., in: line)
+            if ignored?.firstMatch(in: line, range: range) != nil { continue }
+            if dateTextRange(in: line) != nil {
+                let currentHasAmount = current.range(of: #"-?[0-9][0-9,]*\.\d{1,2}"#, options: .regularExpression) != nil
+                if !current.isEmpty && !currentHasAmount { current += " | \(line)" }
+                else { if !current.isEmpty { records.append(current) }; current = line }
+            }
+            else if !current.isEmpty && current.count < 1600 { current += " | \(line)" }
+        }
+        if !current.isEmpty { records.append(current) }
+        return records
     }
 
     private static func recognizeText(_ image: CGImage) async -> String? {
         await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, _ in
-                continuation.resume(returning: (request.results as? [VNRecognizedTextObservation] ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n"))
+                let observations = (request.results as? [VNRecognizedTextObservation] ?? []).sorted {
+                    if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.008 { return $0.boundingBox.midY > $1.boundingBox.midY }
+                    return $0.boundingBox.minX < $1.boundingBox.minX
+                }
+                continuation.resume(returning: observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n"))
             }
             request.recognitionLevel = .accurate; request.recognitionLanguages = ["en-IN", "en-US"]; request.usesLanguageCorrection = true
             DispatchQueue.global(qos: .userInitiated).async {
@@ -356,7 +407,7 @@ enum StatementDocumentParser {
     private static func normalizeHeader(_ value: String) -> String { value.lowercased().filter(\.isLetter) }
     private static func parseAmount(_ value: String) -> Double? {
         let cleaned = value.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: #"[^0-9.\-]"#, with: "", options: .regularExpression)
-        guard let number = Double(cleaned), number > 0 else { return nil }; return number
+        guard let number = Double(cleaned), abs(number) > 0 else { return nil }; return abs(number)
     }
 
     private static let dateFormats = ["dd/MM/yyyy", "dd-MM-yyyy", "dd/MM/yy", "dd-MM-yy", "dd MMM yyyy", "dd-MMM-yyyy", "yyyy-MM-dd", "MM/dd/yyyy"]

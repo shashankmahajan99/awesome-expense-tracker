@@ -129,10 +129,9 @@ final class SyncManager: ObservableObject {
         status = "Stopping sync after the current batch…"
     }
 
-    func deleteLocalTransactions(context: ModelContext) throws -> Int {
+    private func clearLocalTransactions(context: ModelContext) throws -> Int {
         let items = try context.fetch(FetchDescriptor<PaisaTransaction>())
         items.forEach(context.delete); try context.save()
-        status = connected ? "Local data cleared — cloud data is unchanged" : "All data removed from this iPhone"
         return items.count
     }
 
@@ -140,7 +139,7 @@ final class SyncManager: ObservableObject {
         guard connected else { throw SyncFailure.message("Connect this iPhone before deleting cloud data") }
         syncTotal = 0; syncCompleted = 0; isWorking = true; defer { isWorking = false }
         let response: ResetResponse = try await request("/api/mobile/transactions", method: "DELETE", body: Optional<String>.none, authenticated: true)
-        _ = try deleteLocalTransactions(context: context)
+        _ = try clearLocalTransactions(context: context)
         status = "Deleted \(response.deleted) cloud transaction\(response.deleted == 1 ? "" : "s")"
         return response.deleted
     }

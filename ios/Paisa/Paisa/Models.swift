@@ -67,10 +67,15 @@ enum PaisaFormat {
 }
 
 enum PaisaDateWindow: String, CaseIterable, Identifiable {
-    case all = "All time", seven = "Last 7 days", thirty = "Last 30 days", ninety = "Last 90 days", month = "This month", year = "This year"
+    case all = "All time", seven = "Last 7 days", thirty = "Last 30 days", ninety = "Last 90 days", month = "This month", year = "This year", custom = "Custom dates"
     var id: String { rawValue }
-    func contains(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> Bool {
+    func contains(_ date: Date, customFrom: Date = .distantPast, customTo: Date = .distantFuture, now: Date = .now, calendar: Calendar = .current) -> Bool {
         guard self != .all else { return true }
+        if self == .custom {
+            let lower = calendar.startOfDay(for: min(customFrom, customTo))
+            let upper = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: max(customFrom, customTo))) ?? max(customFrom, customTo)
+            return date >= lower && date < upper
+        }
         let start: Date?
         switch self {
         case .seven: start = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now))
@@ -78,7 +83,7 @@ enum PaisaDateWindow: String, CaseIterable, Identifiable {
         case .ninety: start = calendar.date(byAdding: .day, value: -89, to: calendar.startOfDay(for: now))
         case .month: start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))
         case .year: start = calendar.date(from: calendar.dateComponents([.year], from: now))
-        case .all: start = nil
+        case .all, .custom: start = nil
         }
         return start.map { date >= $0 && date <= now } ?? true
     }
@@ -86,5 +91,31 @@ enum PaisaDateWindow: String, CaseIterable, Identifiable {
 
 struct PaisaDateWindowPicker: View {
     @Binding var selection: PaisaDateWindow
-    var body: some View { Picker("Date window", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu) }
+    @Binding var customFrom: Date
+    @Binding var customTo: Date
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Date window", systemImage: "calendar").font(.subheadline.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
+                Spacer()
+                Picker("Period", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+            }
+            if selection == .custom {
+                HStack(spacing: 14) {
+                    dateField("From", value: $customFrom)
+                    dateField("To", value: $customTo)
+                }
+            }
+        }
+        .padding(12)
+        .background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(PaisaTheme.line.opacity(0.8)))
+    }
+    private func dateField(_ title: String, value: Binding<Date>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1).foregroundStyle(PaisaTheme.muted)
+            DatePicker(title, selection: value, displayedComponents: .date).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 }

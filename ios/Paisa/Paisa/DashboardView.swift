@@ -6,10 +6,12 @@ struct DashboardView: View {
     @State private var showReview = false
     @State private var showImport = false
     @State private var dateWindow: PaisaDateWindow = .all
+    @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
+    @State private var customTo = Date.now
 
     // Deferred payments are intentionally understood for today, matching the
     // web inbox. They return only when the server schedules a later review.
-    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt) } }
+    private var visible: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt, customFrom: customFrom, customTo: customTo) } }
     private var unresolved: [PaisaTransaction] { visible.filter { $0.reviewStatus == "unresolved" } }
     private var today: [PaisaTransaction] { visible.filter { Calendar.current.isDate($0.occurredAt, inSameDayAs: .now) } }
     private var total: Double { visible.reduce(0) { $0 + $1.amount } }
@@ -22,8 +24,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                HStack { Label("Date window", systemImage: "calendar").foregroundStyle(PaisaTheme.muted); Spacer(); PaisaDateWindowPicker(selection: $dateWindow) }
-                    .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo)
                 hero
                 metrics
                 inbox
