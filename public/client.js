@@ -96,8 +96,7 @@ async function resolveCurrent(action, message, context = "") {
     await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context }) });
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
-    dialogs.review?.close();
-    if (!items.length) renderReview();
+    renderReview();
   } catch (error) { showToast("Couldn’t save yet", error.message); }
 }
 
