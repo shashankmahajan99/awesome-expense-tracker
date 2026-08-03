@@ -298,7 +298,7 @@ function statementDate(value) {
 }
 
 async function parseStatementText(lines, file) {
-  const { parseStatementRecords } = await import("/statement-parser.mjs");
+  const { parseStatementRecords } = await import("/statement-parser.mjs?v=2");
   const accountTag = accountTagFor(file.name, lines.slice(0, 80).join(" ")); const source = importSource(file.name, accountTag);
   const rows = parseStatementRecords(lines, { filename: file.name, accountTag, source, parseDate: statementDate });
   return { rows, accountTag, detail: `${rows.length} debit rows · ${lines.length} text rows reconstructed` };
