@@ -32,7 +32,8 @@ export function duplicateEvidence(existing, incoming, source = "") {
   const score=similarity(existing.merchant,incoming.merchant),bothTimed=Boolean(existing.timeVerified??existing.time_verified)&&incoming.timeVerified,closeTime=bothTimed&&Math.abs(new Date(existing.occurredAt||existing.occurred_at)-new Date(incoming.occurredAt))<=10*60*1000;
   if(sameAccount&&closeTime&&score>=.5)return "account-time";
   if(sameAccount&&!bothTimed&&(exactNarration||score>=.85))return "statement-overlap";
-  if(crossSource&&score>=.66)return "cross-source";
+  if(crossSource&&bothTimed&&closeTime&&score>=.5)return "cross-source-time";
+  if(crossSource&&!bothTimed&&(exactNarration||score>=.8))return "cross-source-date";
   return null;
 }
 

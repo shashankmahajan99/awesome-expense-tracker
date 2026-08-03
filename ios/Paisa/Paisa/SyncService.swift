@@ -61,6 +61,7 @@ final class SyncManager: ObservableObject {
     private let sitesTokenAccount = "sites-dispatch-token"
     private let pendingStateKey = "paisa.pending-sync-state"
     private let pendingStateDateKey = "paisa.pending-sync-state-created-at"
+    private var networkSession = URLSession(configuration: .default)
 
     init() {
         let hasAccessToken = Self.readKeychain(service: tokenService, account: tokenAccount) != nil
@@ -126,13 +127,17 @@ final class SyncManager: ObservableObject {
     func syncIfConnected(context: ModelContext) async {
         guard connected, !isWorking else { return }
         isWorking = true; syncCancellationRequested = false; defer { isWorking = false; syncCancellationRequested = false }
-        do { try await sync(context: context) } catch { status = error.localizedDescription }
+        do { try await sync(context: context) }
+        catch where syncCancellationRequested || (error as? URLError)?.code == .cancelled { status = "Sync stopped — \(syncCompleted) completed, \(max(0, syncTotal - syncCompleted)) left" }
+        catch { status = error.localizedDescription }
     }
 
     func stopSync() {
-        guard isWorking, syncTotal > 0 else { return }
+        guard isWorking else { return }
         syncCancellationRequested = true
-        status = "Stopping sync after the current batch…"
+        status = "Stopping sync…"
+        networkSession.invalidateAndCancel()
+        networkSession = URLSession(configuration: .default)
     }
 
     private func clearLocalTransactions(context: ModelContext) throws -> Int {
@@ -143,9 +148,14 @@ final class SyncManager: ObservableObject {
 
     func deleteCloudTransactions(context: ModelContext) async throws -> Int {
         guard connected else { throw SyncFailure.message("Connect this iPhone before deleting cloud data") }
-        syncTotal = 0; syncCompleted = 0; isWorking = true; defer { isWorking = false }
+        if isWorking {
+            stopSync()
+            while isWorking { try await Task.sleep(for: .milliseconds(40)) }
+        }
+        syncCancellationRequested = false; syncTotal = 1; syncCompleted = 0; isWorking = true; status = "Deleting transactions everywhere…"; defer { isWorking = false; syncCancellationRequested = false }
         let response: ResetResponse = try await request("/api/mobile/transactions", method: "DELETE", body: Optional<String>.none, authenticated: true)
         _ = try clearLocalTransactions(context: context)
+        syncCompleted = 1
         status = "Deleted \(response.deleted) cloud transaction\(response.deleted == 1 ? "" : "s")"
         return response.deleted
     }
@@ -156,11 +166,19 @@ final class SyncManager: ObservableObject {
             guard !receipts.isEmpty else { return }
             let existing = try context.fetch(FetchDescriptor<PaisaTransaction>())
             let existingIDs = Set(existing.map(\.id))
+            var candidates = existing.filter { !$0.isDeleted }
             var importedIDs: [UUID] = []
 
             for receipt in receipts {
                 if !existingIDs.contains(receipt.id) {
-                    context.insert(PaisaTransaction(
+                    if let match = candidates.first(where: { Self.isLikelyDuplicate($0, receipt) }) {
+                        if receipt.timeVerified == true && !match.timeVerified { match.occurredAt = receipt.occurredAt; match.timeVerified = true }
+                        if match.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame && receipt.category.localizedCaseInsensitiveCompare("Uncategorised") != .orderedSame { match.category = receipt.category }
+                        if !receipt.note.isEmpty && !match.note.contains(receipt.note) { match.note = [match.note, receipt.note].filter { !$0.isEmpty }.joined(separator: " · ") }
+                        match.source = Set((match.source + ",ios_share").split(separator: ",").map(String.init)).sorted().joined(separator: ",")
+                        match.updatedAt = max(match.updatedAt, receipt.createdAt)
+                    } else {
+                        let transaction = PaisaTransaction(
                         id: receipt.id,
                         merchant: receipt.merchant,
                         amount: receipt.amount,
@@ -172,7 +190,9 @@ final class SyncManager: ObservableObject {
                         source: "ios_share",
                         accountTag: receipt.accountTag ?? "",
                         updatedAt: receipt.createdAt
-                    ))
+                        )
+                        context.insert(transaction); candidates.append(transaction)
+                    }
                 }
                 importedIDs.append(receipt.id)
             }
@@ -183,6 +203,33 @@ final class SyncManager: ObservableObject {
         } catch {
             status = "A shared payment could not be imported: \(error.localizedDescription)"
         }
+    }
+
+    private static func isLikelyDuplicate(_ item: PaisaTransaction, _ receipt: SharedReceipt) -> Bool {
+        guard abs(item.amount - receipt.amount) < 0.005, abs(item.occurredAt.timeIntervalSince(receipt.occurredAt)) <= 86_400 else { return false }
+        let leftReference = transactionReference(in: item.note), rightReference = transactionReference(in: receipt.note)
+        if !leftReference.isEmpty && !rightReference.isEmpty { return leftReference.caseInsensitiveCompare(rightReference) == .orderedSame }
+        let sameDay = Calendar.current.isDate(item.occurredAt, inSameDayAs: receipt.occurredAt)
+        let bothTimed = item.timeVerified && receipt.timeVerified == true
+        let closeTime = bothTimed && abs(item.occurredAt.timeIntervalSince(receipt.occurredAt)) <= 10 * 60
+        let sameAccount = !(receipt.accountTag ?? "").isEmpty && item.accountTag.caseInsensitiveCompare(receipt.accountTag ?? "") == .orderedSame
+        let crossSource = !item.source.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.contains("ios_share")
+        let similarity = merchantSimilarity(item.merchant, receipt.merchant)
+        if closeTime && similarity >= 0.5 { return true }
+        if sameAccount && sameDay && !bothTimed && similarity >= 0.85 { return true }
+        return crossSource && sameDay && !bothTimed && similarity >= 0.8
+    }
+
+    private static func transactionReference(in value: String) -> String {
+        let pattern = #"(?i)(?:transaction\s*id|reference|utr|upi\s*ref)[:\s/-]*([A-Z0-9-]{6,40})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern), let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), let range = Range(match.range(at: 1), in: value) else { return "" }
+        return String(value[range])
+    }
+
+    private static func merchantSimilarity(_ lhs: String, _ rhs: String) -> Double {
+        func tokens(_ value: String) -> Set<String> { Set(value.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 2 && !["upi", "paytm", "payment", "transaction", "debit"].contains($0) }) }
+        let left = tokens(lhs), right = tokens(rhs); guard !left.isEmpty, !right.isEmpty else { return 0 }
+        return Double(left.intersection(right).count) / Double(left.union(right).count)
     }
 
     func registerPushToken(_ token: String) async {
@@ -223,25 +270,30 @@ final class SyncManager: ObservableObject {
         let payload = local.map { item in
             SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), timeVerified: item.timeVerified, category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
         }
-        syncCompleted = 0; syncTotal = payload.count
+        syncCompleted = 0; syncTotal = max(1, payload.count)
         let chunks = payload.isEmpty ? [[]] : stride(from: 0, to: payload.count, by: 200).map { Array(payload[$0..<min($0 + 200, payload.count)]) }
         var response: SyncResponse?
         var aliases: [String: String] = [:]
         for chunk in chunks {
-            if syncCancellationRequested { status = "Sync stopped — \(syncCompleted) synced, \(max(0, syncTotal - syncCompleted)) left"; return }
-            status = syncTotal > 0 ? "Syncing \(syncCompleted) of \(syncTotal)…" : "Checking the cloud inbox…"
+            try Task.checkCancellation(); if syncCancellationRequested { throw CancellationError() }
+            status = payload.isEmpty ? "Checking the cloud inbox…" : "Uploading \(syncCompleted) of \(payload.count)…"
             let accountPayload = localAccounts.map { SyncPaymentAccount(id: $0.id.uuidString.lowercased(), name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour, aliases: $0.aliases, updatedAt: Self.format($0.updatedAt)) }
             let result: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: MobileSyncPayload(transactions: chunk, accounts: accountPayload), authenticated: true)
             response = result; result.aliases.forEach { aliases[$0.key] = $0.value }
-            syncCompleted = min(syncTotal, syncCompleted + chunk.count)
+            syncCompleted = min(payload.count, syncCompleted + chunk.count)
         }
         guard let response else { return }
+        let uploadCount = payload.count
+        syncTotal = max(1, uploadCount + response.transactions.count + response.tombstones.count)
+        syncCompleted = uploadCount
+        status = "Applying cloud changes…"
         var byID = Dictionary(uniqueKeysWithValues: local.map { ($0.id.uuidString.lowercased(), $0) })
 
         for (localID, _) in aliases {
             if let item = byID.removeValue(forKey: localID.lowercased()) { context.delete(item) }
         }
         for remote in response.transactions {
+            if syncCancellationRequested { throw CancellationError() }
             guard let id = UUID(uuidString: remote.id), let occurredAt = Self.parse(remote.occurredAt), let updatedAt = Self.parse(remote.updatedAt) else { continue }
             if let item = byID[remote.id.lowercased()] {
                 guard updatedAt >= item.updatedAt else { continue }
@@ -250,10 +302,13 @@ final class SyncManager: ObservableObject {
             } else {
                 context.insert(PaisaTransaction(id: id, merchant: remote.merchant, amount: remote.amount, occurredAt: occurredAt, timeVerified: remote.timeVerified ?? false, category: remote.category, note: remote.context, reviewStatus: remote.reviewStatus, source: remote.source, accountTag: remote.accountTag ?? "", updatedAt: updatedAt))
             }
+            syncCompleted += 1; status = "Applied \(syncCompleted) of \(syncTotal)…"
         }
         for tombstone in response.tombstones {
+            if syncCancellationRequested { throw CancellationError() }
             guard let deletedAt = Self.parse(tombstone.deletedAt), let item = byID[tombstone.id.lowercased()], deletedAt >= item.updatedAt else { continue }
             item.isDeleted = true; item.updatedAt = deletedAt
+            syncCompleted += 1; status = "Applied \(syncCompleted) of \(syncTotal)…"
         }
         let accountsByID = Dictionary(uniqueKeysWithValues: localAccounts.map { ($0.id.uuidString.lowercased(), $0) })
         let accountsByName = Dictionary(localAccounts.map { ($0.name.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
@@ -271,7 +326,7 @@ final class SyncManager: ObservableObject {
         }
         lastSynced = Date()
         let visibleCount = response.transactions.count
-        if syncTotal == 0 { syncTotal = visibleCount; syncCompleted = visibleCount }
+        syncCompleted = syncTotal
         status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions") just now"
     }
 
@@ -284,7 +339,7 @@ final class SyncManager: ObservableObject {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("Bearer \(sitesToken)", forHTTPHeaderField: "OAI-Sites-Authorization")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await networkSession.data(for: request)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode
             let apiMessage = try? JSONDecoder().decode(APIError.self, from: data).error

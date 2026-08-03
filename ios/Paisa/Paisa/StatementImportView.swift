@@ -540,7 +540,15 @@ enum StatementTransactionMerger {
         let existingReference = item.note.range(of: #"(?i)Reference:\s*([A-Z0-9-]{6,40})"#, options: .regularExpression).map { String(item.note[$0]).replacingOccurrences(of: "Reference:", with: "", options: .caseInsensitive).trimmingCharacters(in: .whitespaces) } ?? ""
         if !existingReference.isEmpty && !row.reference.isEmpty { return existingReference.caseInsensitiveCompare(row.reference) == .orderedSame }
         let crossSource = sourceSet(item.source).isDisjoint(with: sourceSet(row.sourceKind))
-        return crossSource && merchantSimilarity(item.merchant, row.merchant) >= 0.66
+        let sameAccount = !row.accountTag.isEmpty && item.accountTag.caseInsensitiveCompare(row.accountTag) == .orderedSame
+        let sameDay = Calendar.current.isDate(item.occurredAt, inSameDayAs: row.date)
+        let bothTimed = item.timeVerified && row.timeVerified
+        let closeTime = bothTimed && abs(item.occurredAt.timeIntervalSince(row.date)) <= 10 * 60
+        let similarity = merchantSimilarity(item.merchant, row.merchant)
+        if sameAccount && closeTime && similarity >= 0.5 { return true }
+        if sameAccount && sameDay && !bothTimed && similarity >= 0.85 { return true }
+        if crossSource && closeTime && similarity >= 0.5 { return true }
+        return crossSource && sameDay && !bothTimed && similarity >= 0.8
     }
 
     private static func merchantSimilarity(_ lhs: String, _ rhs: String) -> Double {

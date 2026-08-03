@@ -189,6 +189,25 @@ async function mergeVerifiedDuplicate(db, userId, row, input, source) {
   return row.id;
 }
 
+async function reconcileUserDuplicates(db,userId,aliases={}){
+  const rows=(await db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC,created_at DESC LIMIT 2000").bind(userId).all()).results;
+  const groups=new Map();for(const row of rows){const key=`${row.amount_paise}|${String(row.occurred_at).slice(0,10)}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+  const active=new Set(rows.map((row)=>row.id));let merged=0;
+  const score=(row)=>(row.time_verified?4:0)+(String(row.context||"").length?1:0)+(row.category&&String(row.category).toLowerCase()!=="uncategorised"?1:0)+sourceSet(row.source).size;
+  const inputFrom=(row)=>({amountPaise:Number(row.amount_paise),merchant:row.merchant,description:row.description||"",context:row.context||"",occurredAt:row.occurred_at,timeVerified:Boolean(row.time_verified),accountTag:row.account_tag||""});
+  for(const group of groups.values()){
+    for(let left=0;left<group.length;left++)for(let right=left+1;right<group.length;right++){
+      if(merged>=100)return merged;const a=group[left],b=group[right];if(!active.has(a.id)||!active.has(b.id))continue;
+      if(!duplicateEvidence(a,inputFrom(b),b.source))continue;
+      const survivor=score(a)>=score(b)?a:b,duplicate=survivor===a?b:a,incoming=inputFrom(duplicate);
+      await mergeVerifiedDuplicate(db,userId,survivor,incoming,duplicate.source);
+      const deletedAt=timestamp();await db.batch([db.prepare("DELETE FROM transactions WHERE id=? AND user_id=?").bind(duplicate.id,userId),db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=excluded.deleted_at").bind(userId,duplicate.id,deletedAt)]);
+      aliases[duplicate.id]=survivor.id;active.delete(duplicate.id);survivor.source=joinedSources(survivor.source,duplicate.source);survivor.account_tag=combinedAccountTag(survivor.account_tag||"",duplicate.account_tag||"");survivor.time_verified=survivor.time_verified||duplicate.time_verified;merged++;
+    }
+  }
+  return merged;
+}
+
 async function authorizeMobile(env, user, url) {
   const callback = url.searchParams.get("callback");
   const state = String(url.searchParams.get("state") || "").slice(0, 120);
@@ -245,6 +264,7 @@ async function syncMobile(db, user, payload) {
       await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,importance_score,dedupe_key,source,account_tag,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(model), key, source, input.accountTag, updatedAt, updatedAt).run();
     }
   }
+  await reconcileUserDuplicates(db,user.id,aliases);
   const [transactions, tombstones] = await Promise.all([
     db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 2000").bind(user.id).all(),
     db.prepare("SELECT transaction_id,deleted_at FROM transaction_tombstones WHERE user_id=?").bind(user.id).all(),
@@ -306,6 +326,7 @@ async function importTransactions(db, user, payload) {
     imported += Number(result.meta?.changes || 0);
     if (!result.meta?.changes) duplicates++;
   }
+  await reconcileUserDuplicates(db,user.id,{});
   await audit(db, user.id, "transactions.imported", "transaction", null, { imported, verified, duplicates, received: transactions.length });
   return json({ imported, verified, duplicates });
 }

@@ -206,7 +206,7 @@ struct SettingsView: View {
                     if sync.isWorking && sync.syncTotal > 0 {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("\(sync.syncCompleted) synced · \(max(0, sync.syncTotal - sync.syncCompleted)) left").font(.caption).foregroundStyle(PaisaTheme.muted)
+                                Text("\(sync.syncCompleted) completed · \(max(0, sync.syncTotal - sync.syncCompleted)) left").font(.caption).foregroundStyle(PaisaTheme.muted)
                                 Spacer()
                                 Button { sync.stopSync() } label: { Image(systemName: "xmark.circle.fill").font(.title3) }.buttonStyle(.plain).accessibilityLabel("Stop sync")
                             }
@@ -258,7 +258,8 @@ struct SettingsView: View {
                 Label("Statements are parsed on device", systemImage: "lock.shield")
                 Label("Sync tokens stay in Keychain", systemImage: "key")
                 Link("Open web dashboard", destination: webURL)
-                Button("Delete all transactions", role: .destructive) { confirmDelete = true }.disabled(!sync.connected || sync.isWorking)
+                Button("Delete all transactions", role: .destructive) { confirmDelete = true }.disabled(!sync.connected)
+                if sync.isWorking { Text("Deleting will stop the active sync first, then remove data everywhere.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !sync.connected { Text("Connect to Paisa Inbox before deleting so the same data is removed from every device.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !dataMessage.isEmpty { Text(dataMessage).font(.caption).foregroundStyle(PaisaTheme.muted) }
             }
