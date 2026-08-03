@@ -63,6 +63,7 @@ struct RootView: View {
         await sync.syncIfConnected(context: context)
         if let transactions = try? context.fetch(FetchDescriptor<PaisaTransaction>()) {
             let unresolved = transactions.filter { !$0.isDeleted && $0.reviewStatus == "unresolved" }
+            publishCaptureProfile(transactions)
             await notifications.scheduleDailyInbox(unresolvedCount: unresolved.count, unresolvedAmount: unresolved.reduce(0) { $0 + $1.amount }, reviewHour: sync.reviewHour, reviewMinute: sync.reviewMinute)
         }
         if notifications.isEnabledForPaisa, let token = notifications.deviceToken { await sync.registerPushToken(token) }
@@ -82,5 +83,17 @@ struct RootView: View {
 
     private func publishPaymentAccounts(_ accounts: [PaymentAccount]) {
         SharedPaymentAccountDirectory.save(accounts.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) })
+    }
+
+    private func publishCaptureProfile(_ transactions: [PaisaTransaction]) {
+        let recent = transactions.filter { !$0.isDeleted }.sorted { $0.occurredAt > $1.occurredAt }
+        var categoryByMerchant: [String: String] = [:]
+        for item in recent where categoryByMerchant.count < 200 {
+            guard !item.merchant.isEmpty, !item.category.isEmpty, item.category.localizedCaseInsensitiveCompare("Uncategorised") != .orderedSame else { continue }
+            let key = SharedCaptureProfile.normalize(item.merchant)
+            if !key.isEmpty && categoryByMerchant[key] == nil { categoryByMerchant[key] = item.category }
+        }
+        let lastAccount = recent.first { !$0.accountTag.isEmpty }?.accountTag
+        SharedCaptureProfileDirectory.save(SharedCaptureProfile(lastAccountName: lastAccount, categoryByMerchant: categoryByMerchant))
     }
 }

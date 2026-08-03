@@ -11,9 +11,34 @@ struct ImportBankSMSIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let transaction = BankSMSParser.parse(message) else { return .result(dialog: "I couldn’t find a debit amount and merchant. Pass the full bank message and try again.") }
-        let receipt = SharedReceipt(id: UUID(), merchant: transaction.merchant, amount: transaction.amount, category: transaction.category, note: "Imported from bank SMS · \(message.prefix(240))", occurredAt: transaction.date, createdAt: .now, accountTag: account?.name)
+        let receipt = SharedReceipt(id: SharedReceipt.captureID(merchant: transaction.merchant, amount: transaction.amount, occurredAt: transaction.date, reference: message), merchant: transaction.merchant, amount: transaction.amount, category: transaction.category, note: "Imported from bank SMS · \(message.prefix(240))", occurredAt: transaction.date, createdAt: .now, accountTag: account?.name)
         try SharedInbox.save(receipt)
         return .result(dialog: "Added \(transaction.merchant) for ₹\(transaction.amount.formatted(.number.precision(.fractionLength(0...2)))) to your review inbox.")
+    }
+}
+
+struct CapturePaytmPaymentIntent: AppIntent {
+    static var title: LocalizedStringResource = "Log a Paytm Payment"
+    static var description = IntentDescription("A one-field capture action for a personal automation that runs when Paytm closes.")
+    static var openAppWhenRun = false
+
+    @Parameter(title: "Amount") var amount: Double
+    @Parameter(title: "Merchant", description: "Optional. Leave blank to review the merchant later.") var merchant: String?
+    @Parameter(title: "Payment account", description: "Optional. Paisa Inbox chooses your saved Paytm account when omitted.") var account: PaymentAccountEntity?
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard amount > 0 else { return .result(dialog: "Enter an amount greater than zero.") }
+        let cleanedMerchant = merchant?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedMerchant = cleanedMerchant?.isEmpty == false ? cleanedMerchant! : "Paytm payment"
+        let accounts = SharedPaymentAccountDirectory.all()
+        let profile = SharedCaptureProfileDirectory.current()
+        let automaticAccount = accounts.first { value in
+            value.name.localizedCaseInsensitiveContains("paytm") || value.kind == "app" || value.kind == "wallet"
+        }?.name ?? profile.lastAccountName
+        let category = profile.category(for: savedMerchant) ?? BankSMSParser.category(for: savedMerchant)
+        let now = Date.now
+        try SharedInbox.save(SharedReceipt(id: SharedReceipt.captureID(merchant: savedMerchant, amount: amount, occurredAt: now, reference: "paytm-close"), merchant: savedMerchant, amount: amount, category: category, note: "Captured when Paytm closed", occurredAt: now, createdAt: now, accountTag: account?.name ?? automaticAccount))
+        return .result(dialog: "Saved ₹\(amount.formatted(.number.precision(.fractionLength(0...2)))) from Paytm. It is ready in your Paisa Inbox.")
     }
 }
 
@@ -46,6 +71,7 @@ struct PaymentAccountQuery: EntityQuery {
 struct PaisaShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: ImportBankSMSIntent(), phrases: ["Add bank message to \(.applicationName)", "Import bank SMS into \(.applicationName)"], shortTitle: "Add bank SMS", systemImageName: "message.badge.fill")
+        AppShortcut(intent: CapturePaytmPaymentIntent(), phrases: ["Log a Paytm payment in \(.applicationName)", "Capture Paytm in \(.applicationName)"], shortTitle: "Log Paytm payment", systemImageName: "indianrupeesign.circle.fill")
     }
 }
 
@@ -70,5 +96,5 @@ private enum BankSMSParser {
         for format in ["dd/MM/yy hh:mm a", "dd-MM-yy hh:mm a", "dd/MM/yyyy HH:mm", "dd-MM-yyyy HH:mm", "dd/MM/yy", "dd-MM-yy", "dd/MM/yyyy", "dd-MM-yyyy"] { let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_IN_POSIX"); formatter.dateFormat = format; if let parsed = formatter.date(from: String(value[range])) { return parsed } }
         return nil
     }
-    private static func category(for merchant: String) -> String { let value = merchant.lowercased(); if value.range(of: "zomato|swiggy|restaurant|cafe", options: .regularExpression) != nil { return "Food & dining" }; if value.range(of: "blinkit|zepto|grocery", options: .regularExpression) != nil { return "Groceries" }; if value.range(of: "uber|ola|metro|fuel|petrol|toll", options: .regularExpression) != nil { return "Travel" }; return "Uncategorised" }
+    static func category(for merchant: String) -> String { let value = merchant.lowercased(); if value.range(of: "zomato|swiggy|restaurant|cafe", options: .regularExpression) != nil { return "Food & dining" }; if value.range(of: "blinkit|zepto|grocery", options: .regularExpression) != nil { return "Groceries" }; if value.range(of: "uber|ola|metro|fuel|petrol|toll", options: .regularExpression) != nil { return "Travel" }; return "Uncategorised" }
 }

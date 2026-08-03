@@ -9,10 +9,12 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
     private let amountField = PaisaTextField(title: "Amount", placeholder: "₹0")
     private let categoryField = PaisaTextField(title: "Category")
     private let noteField = PaisaTextField(title: "Note", placeholder: "Optional")
+    private let accountButton = UIButton(type: .system)
     private let progress = UIActivityIndicatorView(style: .medium)
     private let progressLabel = UILabel()
     private let saveButton = UIButton(type: .system)
     private var extractedText = ""
+    private var selectedAccountName: String?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -61,6 +63,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         categoryField.field.text = "Uncategorised"
         categoryField.field.autocapitalizationType = .words
         noteField.field.autocapitalizationType = .sentences
+        configureAccountButton()
 
         saveButton.setTitle("Save payment", for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
@@ -72,7 +75,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
         stack.axis = .vertical
         stack.spacing = 18
-        [topRow, subtitle, progressRow, merchantField, amountField, categoryField, noteField, saveButton].forEach(stack.addArrangedSubview)
+        [topRow, subtitle, progressRow, merchantField, amountField, accountPickerView(), categoryField, noteField, saveButton].forEach(stack.addArrangedSubview)
 
         view.addSubview(scrollView)
         scrollView.addSubview(stack)
@@ -102,9 +105,12 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
-               let image = await loadImage(from: provider),
-               let text = await recognizeText(in: image), !text.isEmpty {
-                textParts.append(text)
+               let image = await loadImage(from: provider) {
+                let fastText = await recognizeText(in: image, accurate: false) ?? ""
+                let fastDetails = ReceiptParser.parse(fastText)
+                let needsAccurateRetry = fastDetails.amount == nil || fastDetails.merchant.isEmpty
+                let text = needsAccurateRetry ? (await recognizeText(in: image, accurate: true) ?? fastText) : fastText
+                if !text.isEmpty { textParts.append(text) }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
                       let text = await loadString(from: provider, type: .plainText) {
                 textParts.append(text)
@@ -123,6 +129,7 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         if let amount = details.amount {
             amountField.field.text = ReceiptParser.displayAmount(amount)
         }
+        categoryField.field.text = details.category
         if let note = details.note { noteField.field.text = note }
         progress.stopAnimating()
         progress.isHidden = true
@@ -130,6 +137,40 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
             ? "Enter the payment details below."
             : "Details extracted — check before saving."
         merchantField.field.becomeFirstResponderIfEmpty()
+    }
+
+    private func configureAccountButton() {
+        let accounts = SharedPaymentAccountDirectory.all()
+        let profile = SharedCaptureProfileDirectory.current()
+        let preferred = accounts.first { $0.name.localizedCaseInsensitiveContains("paytm") }
+            ?? accounts.first { $0.name == profile.lastAccountName }
+            ?? (accounts.count == 1 ? accounts[0] : nil)
+        selectedAccountName = preferred?.name
+        accountButton.setTitle(preferred?.displayName ?? "Choose payment account", for: .normal)
+        accountButton.contentHorizontalAlignment = .leading
+        accountButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+        accountButton.tintColor = .paisaInk
+        accountButton.backgroundColor = UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1)
+        accountButton.layer.cornerRadius = 14
+        accountButton.layer.borderWidth = 1
+        accountButton.layer.borderColor = UIColor.paisaLine.cgColor
+        var configuration = UIButton.Configuration.plain()
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
+        accountButton.configuration = configuration
+        accountButton.heightAnchor.constraint(equalToConstant: 52).isActive = true
+        accountButton.showsMenuAsPrimaryAction = true
+        accountButton.menu = UIMenu(children: accounts.map { account in UIAction(title: account.displayName, state: account.name == selectedAccountName ? .on : .off) { [weak self] _ in self?.selectedAccountName = account.name; self?.accountButton.setTitle(account.displayName, for: .normal); self?.configureAccountButtonMenu() } })
+    }
+
+    private func configureAccountButtonMenu() {
+        let accounts = SharedPaymentAccountDirectory.all()
+        accountButton.menu = UIMenu(children: accounts.map { account in UIAction(title: account.displayName, state: account.name == selectedAccountName ? .on : .off) { [weak self] _ in self?.selectedAccountName = account.name; self?.accountButton.setTitle(account.displayName, for: .normal); self?.configureAccountButtonMenu() } })
+    }
+
+    private func accountPickerView() -> UIView {
+        let label = UILabel(); label.text = "PAYMENT ACCOUNT"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = .paisaMuted
+        let field = UIStackView(arrangedSubviews: [label, accountButton]); field.axis = .vertical; field.spacing = 7
+        return field
     }
 
     private func loadImage(from provider: NSItemProvider) async -> CGImage? {
@@ -148,21 +189,35 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         return nil
     }
 
-    private func recognizeText(in image: CGImage) async -> String? {
-        await withCheckedContinuation { continuation in
+    private func recognizeText(in image: CGImage, accurate: Bool) async -> String? {
+        let input = downsample(image, maximumDimension: accurate ? 2200 : 1600)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
             let request = VNRecognizeTextRequest { request, _ in
                 let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
                     .compactMap { $0.topCandidates(1).first?.string }
                 continuation.resume(returning: lines.joined(separator: "\n"))
             }
-            request.recognitionLevel = .accurate
+            request.recognitionLevel = accurate ? .accurate : .fast
             request.recognitionLanguages = ["en-IN", "en-US"]
-            request.usesLanguageCorrection = true
+            request.usesLanguageCorrection = accurate
+            request.minimumTextHeight = accurate ? 0.012 : 0.018
+            request.customWords = ["Paytm", "UPI", "Paid Successfully", "Transaction ID"]
             DispatchQueue.global(qos: .userInitiated).async {
-                do { try VNImageRequestHandler(cgImage: image).perform([request]) }
+                do { try VNImageRequestHandler(cgImage: input).perform([request]) }
                 catch { continuation.resume(returning: nil) }
             }
         }
+    }
+
+    private func downsample(_ image: CGImage, maximumDimension: Int) -> CGImage {
+        let longest = max(image.width, image.height)
+        guard longest > maximumDimension else { return image }
+        let scale = CGFloat(maximumDimension) / CGFloat(longest)
+        let width = max(1, Int(CGFloat(image.width) * scale)), height = max(1, Int(CGFloat(image.height) * scale))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
     }
 
     @objc private func save() {
@@ -180,14 +235,16 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
         let category = categoryField.field.text?.trimmingCharacters(in: .whitespacesAndNewlines)
         let note = noteField.field.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let now = Date.now
         let receipt = SharedReceipt(
-            id: UUID(),
+            id: SharedReceipt.captureID(merchant: merchant, amount: amount, occurredAt: now, reference: note),
             merchant: merchant,
             amount: amount,
             category: category?.isEmpty == false ? category! : "Uncategorised",
             note: note,
-            occurredAt: .now,
-            createdAt: .now
+            occurredAt: now,
+            createdAt: now,
+            accountTag: selectedAccountName
         )
         do {
             try SharedInbox.save(receipt)
@@ -264,7 +321,7 @@ private final class PaisaTextField: UIView {
 }
 
 private enum ReceiptParser {
-    struct Details { let merchant: String; let amount: Double?; let note: String? }
+    struct Details { let merchant: String; let amount: Double?; let category: String; let note: String? }
 
     static func parse(_ text: String) -> Details {
         let lines = text.components(separatedBy: .newlines)
@@ -272,11 +329,13 @@ private enum ReceiptParser {
             .filter { !$0.isEmpty }
         let amount = bestAmount(in: lines)
         let merchant = bestMerchant(in: lines)
+        let learnedCategory = SharedCaptureProfileDirectory.current().category(for: merchant)
+        let category = learnedCategory ?? suggestedCategory(for: merchant)
         let note = lines.first(where: { line in
             let lower = line.lowercased()
             return lower.contains("upi") || lower.contains("transaction id") || lower.contains("reference")
         }).map { String($0.prefix(160)) }
-        return Details(merchant: merchant, amount: amount, note: note)
+        return Details(merchant: merchant, amount: amount, category: category, note: note)
     }
 
     static func amount(from text: String) -> Double? {
@@ -324,13 +383,15 @@ private enum ReceiptParser {
            let host = URL(string: urlLine)?.host {
             return host.replacingOccurrences(of: "www.", with: "")
         }
-        let prefixes = ["paid to", "sent to", "payment to", "transferred to", "merchant"]
-        for line in lines {
+        let prefixes = ["paid to", "sent to", "payment to", "transferred to", "merchant", "to:"]
+        for (index, line) in lines.enumerated() {
             let lower = line.lowercased()
+            if lower == "to", lines.indices.contains(index + 1), isMerchantCandidate(lines[index + 1]) { return cleanMerchant(lines[index + 1]) }
             for prefix in prefixes where lower.contains(prefix) {
                 let start = lower.range(of: prefix)!.upperBound
                 let candidate = cleanMerchant(String(line[start...]))
                 if !candidate.isEmpty { return candidate }
+                if lines.indices.contains(index + 1), isMerchantCandidate(lines[index + 1]) { return cleanMerchant(lines[index + 1]) }
             }
         }
         let noise = ["payment", "successful", "completed", "paytm", "google pay", "gpay", "transaction", "upi", "bank", "date", "time", "share", "done"]
@@ -342,6 +403,21 @@ private enum ReceiptParser {
             return cleanMerchant(line)
         }
         return ""
+    }
+
+    private static func isMerchantCandidate(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        let noise = ["payment", "successful", "completed", "transaction", "upi", "bank", "date", "time", "done", "pay again", "share"]
+        return !line.contains("₹") && amount(from: line) == nil && line.count >= 2 && line.count <= 80 && !noise.contains(where: { lower == $0 || lower.hasPrefix("\($0) ") })
+    }
+
+    private static func suggestedCategory(for merchant: String) -> String {
+        let value = merchant.lowercased()
+        if value.range(of: "zomato|swiggy|restaurant|cafe|food", options: .regularExpression) != nil { return "Food & dining" }
+        if value.range(of: "blinkit|zepto|grocery|bigbasket|instamart", options: .regularExpression) != nil { return "Groceries" }
+        if value.range(of: "uber|ola|metro|fuel|petrol|toll|parking", options: .regularExpression) != nil { return "Travel" }
+        if value.range(of: "amazon|flipkart|myntra|ajio", options: .regularExpression) != nil { return "Shopping" }
+        return "Uncategorised"
     }
 
     private static func cleanMerchant(_ value: String) -> String {

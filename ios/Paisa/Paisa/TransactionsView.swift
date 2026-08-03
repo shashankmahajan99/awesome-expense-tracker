@@ -189,6 +189,7 @@ struct SettingsView: View {
     @State private var confirmDelete = false
     @State private var dataMessage = ""
     @State private var showAccountManager = false
+    @State private var showPaytmSetup = false
     @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
     @AppStorage("paisaAppearance") private var appearance = "system"
     @AppStorage("paisaCompanionConsent") private var companionConsent = false
@@ -243,9 +244,10 @@ struct SettingsView: View {
                 Text("Saved banks, cards, wallets, and apps become reusable choices in transactions, statements, SMS imports, and insights.").font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Section("Shortcuts & bank SMS") {
+                Button { showPaytmSetup = true } label: { Label("Create Paytm capture automation", systemImage: "bolt.badge.clock") }
+                Text("When Paytm closes, ask whether money moved. If yes, Paisa Inbox opens a one-field amount capture with account, date, source, and likely category already filled.").font(.caption).foregroundStyle(PaisaTheme.muted)
                 Label("Add Bank SMS to Paisa Inbox", systemImage: "message.badge")
-                Text("In Shortcuts, create a personal Message automation, add the Paisa Inbox action, pass the message text, and choose a saved bank or card. Extraction runs locally and the payment lands in Daily Review.").font(.caption).foregroundStyle(PaisaTheme.muted)
-                Link("Open Shortcuts", destination: URL(string: "shortcuts://")!)
+                Text("For bank alerts, create a personal Message automation, add the Paisa Inbox action, pass the message text, and choose a saved bank or card. Extraction runs locally.").font(.caption).foregroundStyle(PaisaTheme.muted)
                 Text("iOS does not let apps read your SMS inbox directly. The personal automation is the permission-controlled handoff.").font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Section("Data controls") {
@@ -269,6 +271,36 @@ struct SettingsView: View {
             Button("Delete everywhere", role: .destructive) { Task { do { let count = try await sync.deleteCloudTransactions(context: context); dataMessage = "Deleted \(count) transaction\(count == 1 ? "" : "s") everywhere." } catch { dataMessage = error.localizedDescription } } }
         } message: { Text("This permanently removes cloud and local transaction history. Your sign-in and preferences remain.") }
         .sheet(isPresented: $showAccountManager) { PaymentAccountManager() }
+        .sheet(isPresented: $showPaytmSetup) { PaytmAutomationSetupView() }
+    }
+}
+
+private struct PaytmAutomationSetupView: View {
+    @Environment(\.dismiss) private var dismiss
+    private let shortcutsURL = URL(string: "shortcuts://")!
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    PaisaEyebrow(text: "Instant capture")
+                    Text("Log Paytm in seconds").font(.largeTitle.bold()).foregroundStyle(PaisaTheme.ink)
+                    Text("Apple requires you to approve personal automations. Paisa Inbox provides the capture action; this setup connects it to Paytm closing.").foregroundStyle(PaisaTheme.muted)
+                    setupStep(1, "Open Shortcuts", "Tap Automation, then +, and choose App.")
+                    setupStep(2, "Choose Paytm", "Select Is Closed and Run Immediately.")
+                    setupStep(3, "Ask first", "Add Choose from Menu: “Was that a transaction?” with Yes and No.")
+                    setupStep(4, "Log only on Yes", "Inside Yes, add “Log a Paytm Payment” from Paisa Inbox. Set Amount to Ask Each Time; merchant and account can stay optional.")
+                    PaisaCard {
+                        Label("No battery drain", systemImage: "battery.100percent").fontWeight(.bold).foregroundStyle(PaisaTheme.ink)
+                        Text("Nothing runs in the background. iOS fires the automation once when Paytm closes, and Paisa Inbox stores the confirmed payment locally.").font(.caption).foregroundStyle(PaisaTheme.muted).padding(.top, 6)
+                    }
+                    Link(destination: shortcutsURL) { Label("Open Shortcuts to create it", systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity).padding(15).background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white).fontWeight(.bold) }
+                }.padding(20)
+            }.background(PaisaTheme.canvas.ignoresSafeArea()).navigationTitle("Paytm automation").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func setupStep(_ number: Int, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 13) { Text("\(number)").font(.headline).frame(width: 34, height: 34).background(PaisaTheme.gold, in: Circle()).foregroundStyle(PaisaTheme.forest); VStack(alignment: .leading, spacing: 4) { Text(title).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Text(detail).font(.subheadline).foregroundStyle(PaisaTheme.muted) } }
     }
 }
 

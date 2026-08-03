@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct SharedReceipt: Codable, Identifiable {
     let id: UUID
@@ -12,6 +13,14 @@ struct SharedReceipt: Codable, Identifiable {
 
     init(id: UUID, merchant: String, amount: Double, category: String, note: String, occurredAt: Date, createdAt: Date, accountTag: String? = nil) {
         self.id = id; self.merchant = merchant; self.amount = amount; self.category = category; self.note = note; self.occurredAt = occurredAt; self.createdAt = createdAt; self.accountTag = accountTag
+    }
+
+    static func captureID(merchant: String, amount: Double, occurredAt: Date, reference: String = "") -> UUID {
+        let minute = Int(occurredAt.timeIntervalSince1970 / 60)
+        let input = "\(SharedCaptureProfile.normalize(merchant))|\(Int((amount * 100).rounded()))|\(minute)|\(reference.lowercased())"
+        var bytes = Array(SHA256.hash(data: Data(input.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x40; bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 }
 
@@ -74,6 +83,35 @@ enum SharedPaymentAccountDirectory {
     static func all() -> [SharedPaymentAccount] {
         guard let data = defaults?.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([SharedPaymentAccount].self, from: data)) ?? []
+    }
+}
+
+struct SharedCaptureProfile: Codable {
+    let lastAccountName: String?
+    let categoryByMerchant: [String: String]
+
+    func category(for merchant: String) -> String? {
+        let key = Self.normalize(merchant)
+        guard !key.isEmpty else { return nil }
+        if let exact = categoryByMerchant[key] { return exact }
+        return categoryByMerchant.first { stored, _ in key.contains(stored) || stored.contains(key) }?.value
+    }
+
+    static func normalize(_ value: String) -> String {
+        value.lowercased().replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum SharedCaptureProfileDirectory {
+    private static let key = "paisa.capture-profile"
+    private static var defaults: UserDefaults? { UserDefaults(suiteName: SharedInbox.appGroupIdentifier) }
+
+    static func save(_ profile: SharedCaptureProfile) { defaults?.set(try? JSONEncoder().encode(profile), forKey: key) }
+    static func current() -> SharedCaptureProfile {
+        guard let data = defaults?.data(forKey: key), let profile = try? JSONDecoder().decode(SharedCaptureProfile.self, from: data) else {
+            return SharedCaptureProfile(lastAccountName: nil, categoryByMerchant: [:])
+        }
+        return profile
     }
 }
 
