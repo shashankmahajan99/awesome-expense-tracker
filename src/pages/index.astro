@@ -112,6 +112,12 @@ import DateWindow from "../components/DateWindow.astro";
       </form>
     </dialog>
 
+    <dialog class="completion-dialog reset-dialog" id="reset-dialog">
+      <div class="completion-mark">!</div><span class="eyebrow">FRESH START</span><h2>Clear every transaction?</h2>
+      <p>This permanently removes transactions and review history. Your sign-in, connected iPhone, and reminder preferences stay intact.</p>
+      <div class="sheet-actions"><button class="secondary-button" type="button" id="cancel-reset">Keep my data</button><button class="danger-button" type="button" id="confirm-reset">Clear transactions</button></div>
+    </dialog>
+
     <dialog class="completion-dialog" id="completion-dialog">
       <div class="completion-mark">✓</div><span class="eyebrow">REVIEW COMPLETE</span><h2>Done. Your money makes sense.</h2>
       <p>Today was higher than usual mainly because of the Gurgaon trip. Your normal day-to-day spending was unchanged.</p>

@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const dialogs = { review: $("#review-dialog"), batch: $("#batch-dialog"), preferences: $("#preferences-dialog"), completion: $("#completion-dialog"), import: $("#import-dialog") };
+const dialogs = { review: $("#review-dialog"), batch: $("#batch-dialog"), preferences: $("#preferences-dialog"), reset: $("#reset-dialog"), completion: $("#completion-dialog"), import: $("#import-dialog") };
 const formatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const tones = ["amber", "red", "blue", "green", "yellow"];
 const defaultCategories = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"];
@@ -378,10 +378,13 @@ $("#export-data")?.addEventListener("click", async () => {
   try { const data = await api("/api/export"); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `paisa-export-${new Date().toISOString().slice(0,10)}.json`; link.click(); URL.revokeObjectURL(url); showToast("Export ready", "Your private data copy was downloaded"); }
   catch (error) { showToast("Export failed", error.message); }
 });
-$("#reset-financial-data")?.addEventListener("click", async () => {
-  if (!window.confirm("Permanently clear every transaction and review for this account? Your sign-in and reminder preferences will remain. This cannot be undone.")) return;
-  try { const result = await api("/api/transactions", { method: "DELETE" }); dialogs.preferences.close(); items = []; syncQueue(); showToast(`${result.deleted} transactions cleared`, "You can now import statements with the updated parser"); await loadDashboard(); }
+$("#reset-financial-data")?.addEventListener("click", () => dialogs.reset.showModal());
+$("#cancel-reset")?.addEventListener("click", () => dialogs.reset.close());
+$("#confirm-reset")?.addEventListener("click", async () => {
+  const button = $("#confirm-reset"); button.disabled = true; button.textContent = "Clearing…";
+  try { const result = await api("/api/transactions", { method: "DELETE" }); dialogs.reset.close(); dialogs.preferences.close(); items = []; syncQueue(); showToast(`${result.deleted} transactions cleared`, "You can now import statements with the updated parser"); await loadDashboard(); }
   catch (error) { showToast("Reset failed", error.message); }
+  finally { button.disabled = false; button.textContent = "Clear transactions"; }
 });
 $("#delete-account")?.addEventListener("click", async () => {
   if (!window.confirm("Permanently delete all Paisa transactions, reviews, preferences, and audit data for this account? This cannot be undone.")) return;
