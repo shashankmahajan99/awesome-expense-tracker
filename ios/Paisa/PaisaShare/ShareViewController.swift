@@ -18,12 +18,15 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        let appearance = SharedAppearance.current()
+        overrideUserInterfaceStyle = appearance == "dark" ? .dark : appearance == "light" ? .light : .unspecified
         configureUI()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (controller: ShareViewController, _) in controller.applyAppearance() }
         Task { await loadSharedContent() }
     }
 
     private func configureUI() {
-        view.backgroundColor = UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1)
+        view.backgroundColor = .paisaCanvas
         navigationItem.title = "Save to Paisa Inbox"
 
         let header = UILabel()
@@ -64,11 +67,12 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         categoryField.field.autocapitalizationType = .words
         noteField.field.autocapitalizationType = .sentences
         configureAccountButton()
+        applyAppearance()
 
         saveButton.setTitle("Save payment", for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
         saveButton.backgroundColor = .paisaForest
-        saveButton.tintColor = .white
+        saveButton.tintColor = .paisaPrimaryForeground
         saveButton.layer.cornerRadius = 15
         saveButton.heightAnchor.constraint(equalToConstant: 54).isActive = true
         saveButton.addTarget(self, action: #selector(save), for: .touchUpInside)
@@ -102,10 +106,12 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         let inputItems = extensionContext?.inputItems as? [NSExtensionItem] ?? []
         let providers = inputItems.flatMap { $0.attachments ?? [] }
         var textParts = inputItems.flatMap { item in [item.attributedTitle?.string, item.attributedContentText?.string].compactMap { $0 } }
+        var processedImage = false
 
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+            if !processedImage, provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
                let image = await loadImage(from: provider) {
+                processedImage = true
                 let fastText = await recognizeText(in: image, accurate: false) ?? ""
                 let fastDetails = ReceiptParser.parse(fastText)
                 let needsAccurateRetry = fastDetails.amount == nil || fastDetails.merchant.isEmpty
@@ -150,10 +156,10 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         accountButton.contentHorizontalAlignment = .leading
         accountButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
         accountButton.tintColor = .paisaInk
-        accountButton.backgroundColor = UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1)
+        accountButton.backgroundColor = .paisaSurface
         accountButton.layer.cornerRadius = 14
         accountButton.layer.borderWidth = 1
-        accountButton.layer.borderColor = UIColor.paisaLine.cgColor
+        accountButton.layer.borderColor = UIColor.paisaLine.resolvedColor(with: traitCollection).cgColor
         var configuration = UIButton.Configuration.plain()
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
         accountButton.configuration = configuration
@@ -171,6 +177,15 @@ final class ShareViewController: UIViewController, UITextFieldDelegate {
         let label = UILabel(); label.text = "PAYMENT ACCOUNT"; label.font = .systemFont(ofSize: 11, weight: .bold); label.textColor = .paisaMuted
         let field = UIStackView(arrangedSubviews: [label, accountButton]); field.axis = .vertical; field.spacing = 7
         return field
+    }
+
+    private func applyAppearance() {
+        view.backgroundColor = .paisaCanvas
+        navigationController?.navigationBar.barTintColor = .paisaCanvas
+        navigationController?.navigationBar.tintColor = .paisaAccent
+        accountButton.backgroundColor = .paisaSurface
+        accountButton.layer.borderColor = UIColor.paisaLine.resolvedColor(with: traitCollection).cgColor
+        [merchantField, amountField, categoryField, noteField].forEach { $0.applyAppearance(for: traitCollection) }
     }
 
     private func loadImage(from provider: NSItemProvider) async -> CGImage? {
@@ -285,10 +300,10 @@ private final class PaisaTextField: UIView {
         field.placeholder = placeholder
         field.font = .systemFont(ofSize: 17, weight: .medium)
         field.textColor = .paisaInk
-        field.backgroundColor = UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1)
+        field.backgroundColor = .paisaSurface
         field.layer.cornerRadius = 14
         field.layer.borderWidth = 1
-        field.layer.borderColor = UIColor(red: 219 / 255, green: 216 / 255, blue: 207 / 255, alpha: 1).cgColor
+        field.layer.borderColor = UIColor.paisaLine.resolvedColor(with: traitCollection).cgColor
         field.setLeftPadding(14)
         field.setRightPadding(14)
         field.heightAnchor.constraint(equalToConstant: 52).isActive = true
@@ -316,7 +331,12 @@ private final class PaisaTextField: UIView {
     func showError(_ message: String?) {
         errorLabel.text = message
         errorLabel.isHidden = message == nil
-        field.layer.borderColor = (message == nil ? UIColor.paisaLine : UIColor.systemRed).cgColor
+        field.layer.borderColor = (message == nil ? UIColor.paisaLine.resolvedColor(with: traitCollection) : UIColor.systemRed).cgColor
+    }
+
+    func applyAppearance(for traits: UITraitCollection) {
+        field.backgroundColor = .paisaSurface
+        field.layer.borderColor = UIColor.paisaLine.resolvedColor(with: traits).cgColor
     }
 }
 
@@ -447,8 +467,12 @@ private extension UITextField {
 }
 
 private extension UIColor {
-    static let paisaForest = UIColor(red: 23 / 255, green: 61 / 255, blue: 53 / 255, alpha: 1)
-    static let paisaInk = UIColor(red: 24 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1)
-    static let paisaMuted = UIColor(red: 103 / 255, green: 110 / 255, blue: 103 / 255, alpha: 1)
-    static let paisaLine = UIColor(red: 219 / 255, green: 216 / 255, blue: 207 / 255, alpha: 1)
+    static let paisaCanvas = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 16 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1) : UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1) }
+    static let paisaSurface = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 23 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1) : UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1) }
+    static let paisaForest = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 132 / 255, green: 194 / 255, blue: 171 / 255, alpha: 1) : UIColor(red: 23 / 255, green: 61 / 255, blue: 53 / 255, alpha: 1) }
+    static let paisaAccent = paisaForest
+    static let paisaPrimaryForeground = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 13 / 255, green: 35 / 255, blue: 29 / 255, alpha: 1) : .white }
+    static let paisaInk = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 237 / 255, green: 243 / 255, blue: 239 / 255, alpha: 1) : UIColor(red: 24 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1) }
+    static let paisaMuted = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 174 / 255, green: 187 / 255, blue: 180 / 255, alpha: 1) : UIColor(red: 103 / 255, green: 110 / 255, blue: 103 / 255, alpha: 1) }
+    static let paisaLine = UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 52 / 255, green: 68 / 255, blue: 61 / 255, alpha: 1) : UIColor(red: 219 / 255, green: 216 / 255, blue: 207 / 255, alpha: 1) }
 }

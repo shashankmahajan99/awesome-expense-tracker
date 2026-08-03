@@ -115,6 +115,13 @@ enum SharedCaptureProfileDirectory {
     }
 }
 
+enum SharedAppearance {
+    private static let key = "paisa.appearance"
+    private static var defaults: UserDefaults? { UserDefaults(suiteName: SharedInbox.appGroupIdentifier) }
+    static func save(_ value: String) { defaults?.set(value, forKey: key) }
+    static func current() -> String { defaults?.string(forKey: key) ?? "system" }
+}
+
 private extension JSONEncoder {
     static let paisa: JSONEncoder = {
         let encoder = JSONEncoder()

@@ -1,12 +1,15 @@
 (() => {
   const root = document.documentElement, savedTheme = localStorage.getItem("paisa-theme") || "system";
-  const applyTheme = (value) => { root.dataset.theme = value; root.style.colorScheme = value === "system" ? "light dark" : value; };
+  const effectiveTheme = (value) => value === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : value;
+  const updateThemeButtons = (value) => document.querySelectorAll("[data-toggle-theme]").forEach((button) => { const next = effectiveTheme(value) === "dark" ? "light" : "dark"; button.setAttribute("aria-label", `Use ${next} mode`); button.title = `Use ${next} mode`; });
+  const applyTheme = (value) => { root.dataset.theme = value; root.style.colorScheme = value === "system" ? "light dark" : value; document.querySelector('meta[name="theme-color"]')?.setAttribute("content", effectiveTheme(value) === "dark" ? "#101815" : "#f4f1e9"); updateThemeButtons(value); };
   applyTheme(savedTheme);
   const preferences = document.querySelector("#global-preferences-dialog"), profile = document.querySelector("#global-profile-dialog"), form = document.querySelector("#global-preferences-form");
   const open = (dialog) => { if (dialog && !dialog.open) dialog.showModal(); };
   document.querySelectorAll("[data-open-preferences]").forEach((button) => button.addEventListener("click", () => open(preferences)));
   document.querySelectorAll("[data-open-profile]").forEach((button) => button.addEventListener("click", () => open(profile)));
   document.querySelectorAll("[data-close-global]").forEach((button) => button.addEventListener("click", () => button.closest("dialog")?.close()));
+  document.querySelectorAll("[data-toggle-theme]").forEach((button) => button.addEventListener("click", () => { const next = effectiveTheme(root.dataset.theme || "system") === "dark" ? "light" : "dark"; localStorage.setItem("paisa-theme", next); if (form) form.elements.appearance.value = next; applyTheme(next); }));
   [preferences, profile].forEach((dialog) => dialog?.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); }));
   if (form) {
     form.elements.appearance.value = savedTheme; form.elements.companionConsent.checked = localStorage.getItem("paisa-companion-consent") === "yes";

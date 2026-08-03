@@ -402,7 +402,7 @@
 				CODE_SIGN_ENTITLEMENTS = PaisaShare/PaisaShare.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PaisaShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -428,7 +428,7 @@
 				CODE_SIGN_ENTITLEMENTS = PaisaShare/PaisaShare.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PaisaShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

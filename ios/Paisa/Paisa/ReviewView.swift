@@ -97,7 +97,7 @@ struct ReviewView: View {
                 Button { speech.stop(); editing = item } label: { Label("Edit merchant, amount, date or time", systemImage: "pencil") }.buttonStyle(.bordered).tint(PaisaTheme.forest)
                 Button { Task { await speech.toggle() } } label: {
                     HStack { Image(systemName: speech.listening ? "stop.fill" : "mic.fill"); Text(speech.listening ? "Stop speaking" : "Speak instead"); Spacer(); if speech.listening { ProgressView().tint(.white) } }
-                        .fontWeight(.semibold).padding(.horizontal, 16).frame(height: 48).background(speech.listening ? Color.red : PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
+                        .fontWeight(.semibold).padding(.horizontal, 16).frame(height: 48).background(speech.listening ? Color.red : PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(speech.listening ? Color.white : PaisaTheme.primaryForeground)
                 }.buttonStyle(.plain).disabled(isSaving)
                 Button { Task { await save(item, status: "explained") } } label: {
                     HStack { Spacer(); if isSaving { ProgressView().tint(PaisaTheme.forest) } else { Text("Save & review next"); Image(systemName: "arrow.right") }; Spacer() }

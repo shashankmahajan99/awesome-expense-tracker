@@ -45,8 +45,11 @@ enum PaisaTheme {
     private static func adaptive(light: UIColor, dark: UIColor) -> Color { Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light }) }
     static let canvas = adaptive(light: UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1), dark: UIColor(red: 16 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1))
     static let surface = adaptive(light: UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1), dark: UIColor(red: 23 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1))
-    static let forest = Color(red: 23 / 255, green: 61 / 255, blue: 53 / 255)
-    static let forestSoft = Color(red: 47 / 255, green: 83 / 255, blue: 74 / 255)
+    static let surfaceRaised = adaptive(light: .white, dark: UIColor(red: 29 / 255, green: 44 / 255, blue: 38 / 255, alpha: 1))
+    static let forest = adaptive(light: UIColor(red: 23 / 255, green: 61 / 255, blue: 53 / 255, alpha: 1), dark: UIColor(red: 132 / 255, green: 194 / 255, blue: 171 / 255, alpha: 1))
+    static let forestDeep = Color(red: 23 / 255, green: 61 / 255, blue: 53 / 255)
+    static let forestSoft = adaptive(light: UIColor(red: 47 / 255, green: 83 / 255, blue: 74 / 255, alpha: 1), dark: UIColor(red: 44 / 255, green: 77 / 255, blue: 66 / 255, alpha: 1))
+    static let primaryForeground = adaptive(light: .white, dark: UIColor(red: 13 / 255, green: 35 / 255, blue: 29 / 255, alpha: 1))
     static let ink = adaptive(light: UIColor(red: 24 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1), dark: UIColor(red: 237 / 255, green: 243 / 255, blue: 239 / 255, alpha: 1))
     static let muted = adaptive(light: UIColor(red: 103 / 255, green: 110 / 255, blue: 103 / 255, alpha: 1), dark: UIColor(red: 174 / 255, green: 187 / 255, blue: 180 / 255, alpha: 1))
     static let gold = Color(red: 229 / 255, green: 194 / 255, blue: 111 / 255)
@@ -64,6 +67,7 @@ struct PaisaCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(PaisaTheme.line.opacity(0.8)))
+            .shadow(color: Color.black.opacity(0.04), radius: 14, y: 6)
     }
 }
 

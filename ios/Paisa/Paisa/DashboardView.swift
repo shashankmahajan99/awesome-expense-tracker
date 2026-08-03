@@ -80,12 +80,12 @@ struct DashboardView: View {
                 HStack { Image(systemName: unresolved.isEmpty ? "checkmark" : "sparkles"); Text(unresolved.isEmpty ? "Inbox clear" : "Review today"); Spacer(); if !unresolved.isEmpty { Image(systemName: "arrow.right") } }
                     .fontWeight(.bold).padding(.horizontal, 16).frame(height: 50)
                     .background(unresolved.isEmpty ? Color.white.opacity(0.13) : PaisaTheme.gold, in: RoundedRectangle(cornerRadius: 14))
-                    .foregroundStyle(unresolved.isEmpty ? .white : PaisaTheme.forest)
+                    .foregroundStyle(unresolved.isEmpty ? .white : PaisaTheme.forestDeep)
             }
             .disabled(unresolved.isEmpty)
         }
         .padding(20)
-        .background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(PaisaTheme.forestDeep, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
     private func heroChip(_ value: String, _ label: String, _ accent: Color) -> some View {

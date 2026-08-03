@@ -2,11 +2,13 @@
 interface Props { title: string; subtitle?: string; action?: "add" | "review" | "none"; }
 const { title, subtitle = "YOUR MONEY, CLEARLY", action = "none" } = Astro.props;
 const showImport = Astro.url.pathname !== "/import";
+import AppIcon from "./AppIcon.astro";
 ---
 <header class="topbar">
   <button class="menu-button" type="button" aria-label="Open menu" data-menu>☰</button>
   <div><p class="date">{subtitle}</p><h1>{title}</h1></div>
   <div class="top-actions">
+    <button class="theme-toggle" type="button" data-toggle-theme aria-label="Use dark mode" title="Use dark mode"><span class="theme-icon theme-moon"><AppIcon name="moon" /></span><span class="theme-icon theme-sun"><AppIcon name="sun" /></span></button>
     {showImport && <a class="import-button" href="/import">＋ Import</a>}
     {action === "add" && <button class="primary-button" type="button" data-add-transaction><span>＋</span> Add transaction</button>}
     {action === "review" && <button class="primary-button loading-control" type="button" data-open-review disabled><span>✦</span> Review today</button>}

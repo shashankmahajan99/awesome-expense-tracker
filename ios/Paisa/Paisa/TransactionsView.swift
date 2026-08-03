@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppIntents
 
 enum PaisaCategories {
     static let defaults = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"]
@@ -137,7 +138,7 @@ struct InsightsView: View {
                     Text("Total tracked").font(.subheadline).foregroundStyle(.white.opacity(0.7))
                     Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     Text("Across \(visible.count) payments").font(.caption).foregroundStyle(.white.opacity(0.65))
-                }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 24))
+                }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(PaisaTheme.forestDeep, in: RoundedRectangle(cornerRadius: 24))
                 PaisaEyebrow(text: "Where it went").padding(.top, 8)
                 ForEach(categorySpend) { summary in
                     PaisaCard {
@@ -190,6 +191,7 @@ struct SettingsView: View {
     @State private var dataMessage = ""
     @State private var showAccountManager = false
     @State private var showPaytmSetup = false
+    @State private var showShareSetup = false
     @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
     @AppStorage("paisaAppearance") private var appearance = "system"
     @AppStorage("paisaCompanionConsent") private var companionConsent = false
@@ -245,7 +247,9 @@ struct SettingsView: View {
             }
             Section("Shortcuts & bank SMS") {
                 Button { showPaytmSetup = true } label: { Label("Create Paytm capture automation", systemImage: "bolt.badge.clock") }
-                Text("When Paytm closes, ask whether money moved. If yes, Paisa Inbox opens a one-field amount capture with account, date, source, and likely category already filled.").font(.caption).foregroundStyle(PaisaTheme.muted)
+                Text("A guided, exact Shortcuts recipe that asks after Paytm closes and records only confirmed payments.").font(.caption).foregroundStyle(PaisaTheme.muted)
+                Button { showShareSetup = true } label: { Label("Enable Share to Paisa Inbox", systemImage: "square.and.arrow.up") }
+                Text("Pin Paisa Inbox in the iOS Share Sheet, then send a Paytm screenshot for private on-device extraction.").font(.caption).foregroundStyle(PaisaTheme.muted)
                 Label("Add Bank SMS to Paisa Inbox", systemImage: "message.badge")
                 Text("For bank alerts, create a personal Message automation, add the Paisa Inbox action, pass the message text, and choose a saved bank or card. Extraction runs locally.").font(.caption).foregroundStyle(PaisaTheme.muted)
                 Text("iOS does not let apps read your SMS inbox directly. The personal automation is the permission-controlled handoff.").font(.caption).foregroundStyle(PaisaTheme.muted)
@@ -272,6 +276,7 @@ struct SettingsView: View {
         } message: { Text("This permanently removes cloud and local transaction history. Your sign-in and preferences remain.") }
         .sheet(isPresented: $showAccountManager) { PaymentAccountManager() }
         .sheet(isPresented: $showPaytmSetup) { PaytmAutomationSetupView() }
+        .sheet(isPresented: $showShareSetup) { ShareSetupView() }
     }
 }
 
@@ -284,23 +289,60 @@ private struct PaytmAutomationSetupView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     PaisaEyebrow(text: "Instant capture")
                     Text("Log Paytm in seconds").font(.largeTitle.bold()).foregroundStyle(PaisaTheme.ink)
-                    Text("Apple requires you to approve personal automations. Paisa Inbox provides the capture action; this setup connects it to Paytm closing.").foregroundStyle(PaisaTheme.muted)
-                    setupStep(1, "Open Shortcuts", "Tap Automation, then +, and choose App.")
-                    setupStep(2, "Choose Paytm", "Select Is Closed and Run Immediately.")
-                    setupStep(3, "Ask first", "Add Choose from Menu: “Was that a transaction?” with Yes and No.")
-                    setupStep(4, "Log only on Yes", "Inside Yes, add “Log a Paytm Payment” from Paisa Inbox. Set Amount to Ask Each Time; merchant and account can stay optional.")
+                    Text("This takes about a minute. Keep this page open and return after each step.").foregroundStyle(PaisaTheme.muted)
+                    PaisaCard {
+                        Label("The finished automation", systemImage: "checkmark.seal.fill").fontWeight(.bold).foregroundStyle(PaisaTheme.ink)
+                        Text("Paytm closes → “Was that a transaction?” → Yes → ask amount → save to Daily Inbox. No does nothing.").font(.subheadline).foregroundStyle(PaisaTheme.muted).padding(.top, 7)
+                    }
+                    setupStep(1, "Refresh the Paisa action", "Tap the button below once so “Log a Paytm Payment” appears in Shortcuts search.")
+                    Button { PaisaShortcuts.updateAppShortcutParameters() } label: { Label("Refresh Paisa Inbox actions", systemImage: "arrow.clockwise") }.buttonStyle(.bordered).tint(PaisaTheme.forest)
+                    setupStep(2, "Create an App automation", "Open Shortcuts → Automation → + → New Automation → App.")
+                    setupStep(3, "Choose Paytm closing", "Tap Choose, select Paytm, tick Is Closed, select Run Immediately, turn off Notify When Run, then tap Next.")
+                    setupStep(4, "Ask Yes or No", "Choose New Blank Automation → Add Action. Search “Choose from Menu”. Change the prompt to “Was that a transaction?” and name the choices Yes and No.")
+                    setupStep(5, "Add Paisa only under Yes", "Inside the Yes branch, tap Add Action and search exactly “Log a Paytm Payment”. Choose the action with the Paisa Inbox icon.")
+                    setupStep(6, "Make amount the tiny form", "Tap Amount in the Paisa action and choose Ask Each Time. Leave Merchant and Payment Account blank—Paisa fills the saved Paytm account and suggests the category.")
+                    setupStep(7, "Save and test", "Tap Done. Open Paytm, then close it. Choose Yes, enter the amount, and confirm it appears in Paisa Inbox → Today.")
                     PaisaCard {
                         Label("No battery drain", systemImage: "battery.100percent").fontWeight(.bold).foregroundStyle(PaisaTheme.ink)
                         Text("Nothing runs in the background. iOS fires the automation once when Paytm closes, and Paisa Inbox stores the confirmed payment locally.").font(.caption).foregroundStyle(PaisaTheme.muted).padding(.top, 6)
                     }
-                    Link(destination: shortcutsURL) { Label("Open Shortcuts to create it", systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity).padding(15).background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white).fontWeight(.bold) }
+                    Link(destination: shortcutsURL) { Label("Open Shortcuts — start at step 2", systemImage: "arrow.up.forward.app").frame(maxWidth: .infinity).padding(15).background(PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(PaisaTheme.primaryForeground).fontWeight(.bold) }
+                    Text("Can’t find the Paisa action? Open Paisa Inbox once after installing the latest build, return here, tap Refresh Paisa Inbox actions, then reopen Shortcuts.").font(.caption).foregroundStyle(PaisaTheme.muted)
                 }.padding(20)
             }.background(PaisaTheme.canvas.ignoresSafeArea()).navigationTitle("Paytm automation").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 
     private func setupStep(_ number: Int, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 13) { Text("\(number)").font(.headline).frame(width: 34, height: 34).background(PaisaTheme.gold, in: Circle()).foregroundStyle(PaisaTheme.forest); VStack(alignment: .leading, spacing: 4) { Text(title).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Text(detail).font(.subheadline).foregroundStyle(PaisaTheme.muted) } }
+        HStack(alignment: .top, spacing: 13) { Text("\(number)").font(.headline).frame(width: 34, height: 34).background(PaisaTheme.gold, in: Circle()).foregroundStyle(PaisaTheme.forestDeep); VStack(alignment: .leading, spacing: 4) { Text(title).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Text(detail).font(.subheadline).foregroundStyle(PaisaTheme.muted) } }
+    }
+}
+
+private struct ShareSetupView: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    PaisaEyebrow(text: "Paytm screenshots")
+                    Text("Pin Share to Paisa Inbox").font(.largeTitle.bold()).foregroundStyle(PaisaTheme.ink)
+                    Text("The extension appears inside the iOS Share Sheet. iOS may place a newly installed action under More until you pin it.").foregroundStyle(PaisaTheme.muted)
+                    shareStep(1, "Open the Share Sheet", "Tap Test below. You can also open any Paytm screenshot in Photos and tap Share.")
+                    ShareLink(item: "Paid ₹1 to Test Merchant via Paytm") { Label("Test the Share Sheet", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent).tint(PaisaTheme.forest)
+                    shareStep(2, "Find Paisa Inbox", "Scroll the horizontal app row to the end and tap More. Search for “Share to Paisa Inbox”.")
+                    shareStep(3, "Pin it", "Tap Edit, add Paisa Inbox to Favorites, then move it near the front.")
+                    shareStep(4, "Share the screenshot", "Paisa reads one screenshot locally, pre-fills amount, merchant, category and payment account, and lets you verify before saving.")
+                    PaisaCard {
+                        Label("If it is still missing", systemImage: "wrench.and.screwdriver").fontWeight(.bold).foregroundStyle(PaisaTheme.ink)
+                        Text("Install the newest Paisa Inbox build that includes the PaisaShare extension, open the main app once, then restart Photos. The app and extension must be signed by the same development team.").font(.caption).foregroundStyle(PaisaTheme.muted).padding(.top, 7)
+                    }
+                }.padding(20)
+            }.background(PaisaTheme.canvas.ignoresSafeArea()).navigationTitle("Share extension").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func shareStep(_ number: Int, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 13) { Text("\(number)").font(.headline).frame(width: 34, height: 34).background(PaisaTheme.gold, in: Circle()).foregroundStyle(PaisaTheme.forestDeep); VStack(alignment: .leading, spacing: 4) { Text(title).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Text(detail).font(.subheadline).foregroundStyle(PaisaTheme.muted) } }
     }
 }
 
