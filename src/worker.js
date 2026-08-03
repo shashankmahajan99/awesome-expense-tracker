@@ -1,4 +1,4 @@
-import { dedupeKey, importance, matchExplanation, normalizeMerchant, shouldNotify } from "./domain.mjs";
+import { dedupeKey, explainMatches, importance, normalizeMerchant, shouldNotify } from "./domain.mjs";
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, display_name TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -270,16 +270,27 @@ function transactionInput(payload, existing = {}) {
 }
 
 async function listTransactions(db, user, url) {
-  const rows = await db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 1000").bind(user.id).all();
-  const search = (url.searchParams.get("search") || "").trim().toLowerCase();
+  const search = (url.searchParams.get("search") || "").trim().toLowerCase().slice(0, 120);
   const status = url.searchParams.get("status") || "all";
-  const category = url.searchParams.get("category") || "all";
-  const transactions = rows.results.map(mapTransaction).filter((row) => {
-    if (status !== "all" && row.reviewStatus !== status) return false;
-    if (category !== "all" && row.category !== category) return false;
-    return !search || `${row.merchant} ${row.description || ""} ${row.context || ""} ${row.accountTag || ""}`.toLowerCase().includes(search);
-  });
-  return json({ transactions, total: transactions.length });
+  const category = String(url.searchParams.get("category") || "all").slice(0, 80);
+  const page = Math.max(1, Math.min(100000, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1));
+  const pageSize = Math.max(10, Math.min(50, Number.parseInt(url.searchParams.get("pageSize") || "25", 10) || 25));
+  const where = ["user_id=?"]; const bindings = [user.id];
+  if (["unresolved", "explained", "known", "deferred", "auto_resolved"].includes(status)) { where.push("review_status=?"); bindings.push(status); }
+  if (category !== "all") { where.push("COALESCE(category,'Uncategorised')=?"); bindings.push(category); }
+  if (search) {
+    const escaped = search.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+    where.push("LOWER(merchant || ' ' || COALESCE(description,'') || ' ' || COALESCE(context,'') || ' ' || COALESCE(account_tag,'')) LIKE ? ESCAPE '\\'");
+    bindings.push(`%${escaped}%`);
+  }
+  const predicate = where.join(" AND "); const offset = (page - 1) * pageSize;
+  const [rows, summary, categories] = await Promise.all([
+    db.prepare(`SELECT * FROM transactions WHERE ${predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?`).bind(...bindings, pageSize, offset).all(),
+    db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE ${predicate}`).bind(...bindings).first(),
+    db.prepare("SELECT DISTINCT COALESCE(category,'Uncategorised') AS category FROM transactions WHERE user_id=? ORDER BY category").bind(user.id).all(),
+  ]);
+  const total = Number(summary?.count || 0);
+  return json({ transactions: rows.results.map(mapTransaction), total, totalAmountPaise: Number(summary?.amount || 0), page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)), categories: categories.results.map((row) => row.category).filter(Boolean) });
 }
 
 async function createTransaction(db, user, payload) {
@@ -349,14 +360,16 @@ async function updateTransaction(db, user, id, payload) {
 async function batchExplain(db, user, payload) {
   const text = String(payload.text || "").trim().slice(0, 2000);
   if (!text) return json({ error: "Explanation is required" }, 400);
-  const rows = await db.prepare("SELECT id,merchant FROM transactions WHERE user_id=? AND review_status='unresolved'").bind(user.id).all();
-  const matched = matchExplanation(text, rows.results);
-  if (!matched.length) return json({ matched: [], unmatched: rows.results.map((row) => row.id) });
+  const rows = await db.prepare("SELECT id,merchant,description,amount_paise,category FROM transactions WHERE user_id=? AND review_status='unresolved'").bind(user.id).all();
+  const decisions = explainMatches(text, rows.results);
+  if (!decisions.length) return json({ matched: [], unmatched: rows.results.map((row) => row.id), categories: {} });
   const groupId = crypto.randomUUID();
   await db.prepare("INSERT INTO review_groups (id,user_id,title,context) VALUES (?,?,?,?)").bind(groupId, user.id, text.toLowerCase().includes("gurgaon") ? "Gurgaon trip" : "Batch explanation", text).run();
-  await db.batch(matched.map((row) => db.prepare("UPDATE transactions SET review_status='explained',context=?,group_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(text, groupId, row.id, user.id)));
-  await audit(db, user.id, "review.batch_explained", "review_group", groupId, { count: matched.length });
-  return json({ groupId, matched: matched.map((row) => row.id), unmatched: rows.results.filter((row) => !matched.some((item) => item.id === row.id)).map((row) => row.id) });
+  await db.batch(decisions.map(({ transaction, category }) => db.prepare("UPDATE transactions SET review_status='explained',context=?,category=COALESCE(?,category),group_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(text, category, groupId, transaction.id, user.id)));
+  const matchedIds = new Set(decisions.map(({ transaction }) => transaction.id));
+  const categories = Object.fromEntries(decisions.filter(({ category }) => category).map(({ transaction, category }) => [transaction.id, category]));
+  await audit(db, user.id, "review.batch_explained", "review_group", groupId, { count: decisions.length, categories });
+  return json({ groupId, matched: [...matchedIds], unmatched: rows.results.filter((row) => !matchedIds.has(row.id)).map((row) => row.id), categories });
 }
 
 async function savePreferences(db, user, payload) {

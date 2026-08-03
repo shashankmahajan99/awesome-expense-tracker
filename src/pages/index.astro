@@ -70,7 +70,7 @@ import AppTopbar from "../components/AppTopbar.astro";
           <span class="merchant-icon amber large" id="review-icon">A</span><p id="review-meta">TODAY · 5:42 PM</p><h2 id="review-amount">₹8,400</h2><h3 id="review-merchant">Amazon</h3>
           <div class="prompt"><span>✦</span><p><strong id="review-question">What was this payment for?</strong><small id="review-hint">It’s larger than your usual Amazon purchase.</small></p></div>
           <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
-          <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and review next payment">✓</button></label>
+          <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and review next payment"><span>✓</span></button></label>
           <div class="quick-actions"><button type="button" data-action="known">Known / repeat</button><button type="button" data-action="group">Group with another</button><button type="button" data-action="skip">Skip for now</button></div>
         </div>
         <p class="keyboard-hint">Press <kbd>Enter</kbd> to save · <kbd>S</kbd> to skip · <kbd>Esc</kbd> to close</p>
@@ -79,11 +79,11 @@ import AppTopbar from "../components/AppTopbar.astro";
 
     <dialog class="sheet-dialog batch-dialog" id="batch-dialog">
       <div class="sheet-top"><div><span class="eyebrow">BATCH EXPLANATION</span><h2>Explain several payments at once.</h2></div><button type="button" data-close-batch aria-label="Close batch explanation">×</button></div>
-      <p class="sheet-intro">Mention merchants naturally. Paisa will locate the matching payments, group related spending, and leave only unmatched items for later.</p>
-      <div class="batch-example"><span>✦</span><p>“The petrol and toll were from today’s Gurgaon trip. Blinkit was groceries.”</p></div>
+      <p class="sheet-intro">Describe them naturally using merchant clues, categories, or amounts. Paisa will group and categorise matches while leaving uncertain payments untouched.</p>
+      <div class="batch-example"><span>✦</span><p>“The petrol and toll were travel. ₹450 and ₹720 were groceries.”</p></div>
       <label class="batch-field listening-field"><span>What happened?</span><textarea id="batch-input" rows="5" placeholder="Speak or type one sentence about today’s spending…"></textarea><i class="field-loader" aria-label="Listening" hidden></i></label>
       <div class="batch-list" id="batch-list" aria-label="Payments available to match"></div>
-      <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice" data-voice-label>● Speak instead</button><button class="primary-button" type="button" id="batch-submit">Match & explain <span>→</span></button></div>
+      <div class="sheet-actions"><button class="secondary-button" type="button" id="batch-voice" data-voice-label>● Speak instead</button><button class="primary-button" type="button" id="batch-submit"><span>Match & explain →</span></button></div>
       <div class="batch-result" id="batch-result" hidden><span>✓</span><p><strong>Explanation applied</strong><small id="batch-result-text"></small></p></div>
     </dialog>
 

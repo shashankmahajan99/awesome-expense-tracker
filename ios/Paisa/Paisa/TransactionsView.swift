@@ -23,6 +23,7 @@ struct TransactionsView: View {
         .background(PaisaTheme.canvas)
         .searchable(text: $search, prompt: "Merchant, category, or note")
         .navigationTitle("Transactions")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { Button { addNew = true } label: { Label("Add", systemImage: "plus") } }
@@ -76,6 +77,7 @@ struct InsightsView: View {
         }
         .background(PaisaTheme.canvas.ignoresSafeArea())
         .navigationTitle("Insights")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
     }
@@ -127,6 +129,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(PaisaTheme.canvas)
         .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(PaisaTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
     }

@@ -25,6 +25,11 @@ import AppTopbar from "../components/AppTopbar.astro";
               <div id="ledger-rows" class="ledger-rows" aria-busy="true">{[1,2,3,4,5].map(() => <div class="ledger-row ledger-skeleton" aria-hidden="true"><span class="ledger-merchant"><i class="skeleton-avatar"></i><span><b class="skeleton-line medium"></b><b class="skeleton-line short"></b></span></span><span class="skeleton-line medium"></span><span class="skeleton-line short"></span><span class="skeleton-line short"></span><span class="skeleton-line medium"></span></div>)}</div>
             </div>
             <div class="ledger-empty" id="ledger-empty" hidden><span>⌕</span><h3>No transactions found.</h3><p>Try another filter or add a transaction manually.</p><button class="primary-button" type="button" data-add-transaction>Add transaction</button></div>
+            <nav class="ledger-pagination" id="ledger-pagination" aria-label="Transaction pages" hidden>
+              <button class="secondary-button" id="ledger-previous" type="button">← Previous</button>
+              <span><strong id="ledger-page">Page 1 of 1</strong><small id="ledger-range">Showing 0 transactions</small></span>
+              <button class="secondary-button" id="ledger-next" type="button">Next →</button>
+            </nav>
           </section>
         </section>
         <footer><span>Paisa gives you a clean ledger without turning money into admin.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>

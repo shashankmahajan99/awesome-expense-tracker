@@ -10,6 +10,8 @@ let preferences = null;
 let pendingImport = [];
 let pendingImportFiles = [];
 let activeRecognition = null;
+let reviewSaving = false;
+let batchMatching = false;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -24,6 +26,11 @@ function showToast(title, detail) {
   toast.querySelector("small").textContent = detail;
   toast.classList.add("visible");
   setTimeout(() => toast.classList.remove("visible"), 2600);
+}
+
+function setButtonLoading(button, loading) {
+  if (!button) return;
+  button.disabled = loading; button.classList.toggle("button-loading", loading); button.setAttribute("aria-busy", String(loading));
 }
 
 function mapTransaction(transaction, index) {
@@ -91,13 +98,15 @@ function openReview(id) {
 
 async function resolveCurrent(action, message, context = "") {
   const item = items[current];
-  if (!item) return;
+  if (!item || reviewSaving) return;
+  reviewSaving = true; const button = action === "explain" ? $("#submit-answer") : $(`[data-action="${action === "defer" ? "skip" : action}"]`); setButtonLoading(button, true);
   try {
     await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context }) });
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
     renderReview();
   } catch (error) { showToast("Couldn’t save yet", error.message); }
+  finally { reviewSaving = false; setButtonLoading(button, false); }
 }
 
 function stopVoice() {
@@ -323,14 +332,18 @@ $$('[data-open-batch]').forEach((button) => button.addEventListener("click", () 
 $$('[data-close-batch]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.batch.close(); }));
 $("#batch-voice")?.addEventListener("click", () => startVoice($("#batch-input"), $("#batch-voice")));
 $("#batch-submit")?.addEventListener("click", async () => {
-  const text = $("#batch-input").value.trim(); if (!text) return $("#batch-input").focus();
+  const text = $("#batch-input").value.trim(); if (!text) return $("#batch-input").focus(); if (batchMatching) return;
+  batchMatching = true; setButtonLoading($("#batch-submit"), true); $("#batch-input").disabled = true;
   try {
     const result = await api("/api/reviews/batch", { method: "POST", body: JSON.stringify({ text }) });
     const matched = new Set(result.matched.map(String)); const matchedItems = items.filter((item) => matched.has(item.id));
+    matchedItems.forEach((item) => { if (result.categories?.[item.id]) item.category = result.categories[item.id]; });
     items = items.filter((item) => !matched.has(item.id)); reviewedCount += matchedItems.length; syncQueue(); $("#batch-result").hidden = false;
-    $("#batch-result-text").textContent = matchedItems.length ? `Matched ${matchedItems.map((item) => item.merchant).join(", ")}. ${items.length} remain.` : "No merchant names matched. Try mentioning a merchant directly.";
+    const assigned = [...new Set(Object.values(result.categories || {}))];
+    $("#batch-result-text").textContent = matchedItems.length ? `Matched ${matchedItems.length} payment${matchedItems.length === 1 ? "" : "s"}${assigned.length ? ` as ${assigned.join(" and ")}` : ""}. ${items.length} remain.` : "No confident matches yet. Try a category, an amount such as ₹450, or a range such as under ₹1,000.";
     if (!items.length) setTimeout(renderReview, 850);
   } catch (error) { showToast("Couldn’t apply explanation", error.message); }
+  finally { batchMatching = false; setButtonLoading($("#batch-submit"), false); $("#batch-input").disabled = false; }
 });
 
 $$('[data-open-preferences]').forEach((button) => button.addEventListener("click", () => { populatePreferences(preferences); dialogs.preferences.showModal(); $(".sidebar")?.classList.remove("open"); }));

@@ -3,6 +3,10 @@ const formatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: 
 const dialog = $("#transaction-dialog");
 const form = $("#transaction-form");
 let transactions = [];
+let currentPage = 1;
+let totalPages = 1;
+let loadSequence = 0;
+const pageSize = 25;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -20,14 +24,8 @@ function statusLabel(status) {
   return ({ unresolved: "Needs review", explained: "Explained", known: "Known / repeat", deferred: "Deferred", auto_resolved: "Auto resolved" })[status] || status;
 }
 
-function filtered() {
-  const query = $("#transaction-search").value.trim().toLowerCase();
-  const status = $("#status-filter").value; const category = $("#category-filter").value;
-  return transactions.filter((item) => (!query || `${item.merchant} ${item.description || ""} ${item.context || ""} ${item.accountTag || ""}`.toLowerCase().includes(query)) && (status === "all" || item.reviewStatus === status) && (category === "all" || item.category === category));
-}
-
-function render() {
-  const visible = filtered(); const root = $("#ledger-rows"); root.replaceChildren();
+function render(data) {
+  const visible = transactions; const root = $("#ledger-rows"); root.replaceChildren();
   root.setAttribute("aria-busy", "false");
   for (const item of visible) {
     const row = document.createElement("div"); row.className = "ledger-row"; row.setAttribute("role", "row");
@@ -44,9 +42,23 @@ function render() {
     const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(item)); actions.append(edit);
     row.append(merchant, category, status, amount, actions); root.append(row);
   }
-  const total = visible.reduce((sum, item) => sum + Number(item.amountPaise || 0), 0);
-  $("#ledger-count").textContent = `${visible.length} transaction${visible.length === 1 ? "" : "s"}`; $("#ledger-total").textContent = formatter.format(total / 100);
+  $("#ledger-count").textContent = `${data.total} transaction${data.total === 1 ? "" : "s"}`; $("#ledger-total").textContent = formatter.format(Number(data.totalAmountPaise || 0) / 100);
   $("#ledger-empty").hidden = Boolean(visible.length); $(".ledger-table").hidden = !visible.length;
+  totalPages = data.pages; currentPage = data.page;
+  const start = data.total ? (currentPage - 1) * data.pageSize + 1 : 0; const end = Math.min(data.total, currentPage * data.pageSize);
+  $("#ledger-page").textContent = `Page ${currentPage} of ${totalPages}`; $("#ledger-range").textContent = data.total ? `Showing ${start}–${end} of ${data.total}` : "No transactions to show";
+  $("#ledger-previous").disabled = currentPage <= 1; $("#ledger-next").disabled = currentPage >= totalPages;
+  $("#ledger-pagination").hidden = !visible.length || data.total <= data.pageSize;
+}
+
+function showLedgerLoading() {
+  const root = $("#ledger-rows"); root.setAttribute("aria-busy", "true"); root.replaceChildren(); $(".ledger-table").hidden = false; $("#ledger-empty").hidden = true; $("#ledger-pagination").hidden = true;
+  for (let index = 0; index < 5; index++) {
+    const row = document.createElement("div"); row.className = "ledger-row ledger-skeleton"; row.setAttribute("aria-hidden", "true");
+    const merchant = document.createElement("span"); merchant.className = "ledger-merchant"; const avatar = document.createElement("i"); avatar.className = "skeleton-avatar"; const copy = document.createElement("span");
+    const line = document.createElement("b"); line.className = "skeleton-line medium"; const subline = document.createElement("b"); subline.className = "skeleton-line short"; copy.append(line, subline); merchant.append(avatar, copy);
+    row.append(merchant, ...["medium", "short", "short", "medium"].map((size) => { const span = document.createElement("span"); span.className = `skeleton-line ${size}`; return span; })); root.append(row);
+  }
 }
 
 function toLocalDate(value) {
@@ -67,13 +79,19 @@ function openEditor(item = null) {
 }
 
 async function load() {
+  const sequence = ++loadSequence; showLedgerLoading();
   try {
-    const data = await api("/api/transactions"); transactions = data.transactions;
-    const categories = [...new Set(transactions.map((item) => item.category).filter(Boolean))].sort();
-    $("#category-filter").replaceChildren(new Option("All categories", "all"), ...categories.map((value) => new Option(value, value)));
-    render();
-    const bootstrap = await api("/api/bootstrap"); document.querySelectorAll("[data-inbox-count]").forEach((node) => node.textContent = bootstrap.summary.count);
-    $("[data-profile-name]").textContent = bootstrap.user.name || "My account"; $("[data-profile-email]").textContent = bootstrap.user.email || "Private account";
+    const params = new URLSearchParams({ page: String(currentPage), pageSize: String(pageSize), search: $("#transaction-search").value.trim(), status: $("#status-filter").value, category: $("#category-filter").value });
+    const data = await api(`/api/transactions?${params}`); if (sequence !== loadSequence) return;
+    if (currentPage > data.pages) { currentPage = data.pages; return load(); }
+    transactions = data.transactions;
+    const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("All categories", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all";
+    render(data);
+    if (!$("[data-profile-name]").dataset.loaded) {
+      const bootstrap = await api("/api/bootstrap"); if (sequence !== loadSequence) return;
+      document.querySelectorAll("[data-inbox-count]").forEach((node) => node.textContent = bootstrap.summary.count);
+      $("[data-profile-name]").textContent = bootstrap.user.name || "My account"; $("[data-profile-email]").textContent = bootstrap.user.email || "Private account"; $("[data-profile-name]").dataset.loaded = "true";
+    }
   } catch (error) {
     $("#ledger-rows").replaceChildren(); $("#ledger-rows").setAttribute("aria-busy", "false");
     $("#ledger-count").textContent = "Transactions unavailable"; $("#ledger-total").textContent = "";
@@ -81,7 +99,11 @@ async function load() {
   }
 }
 
-[$("#transaction-search"), $("#status-filter"), $("#category-filter")].forEach((input) => input.addEventListener("input", render));
+let searchTimer;
+$("#transaction-search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { currentPage = 1; load(); }, 250); });
+[$("#status-filter"), $("#category-filter")].forEach((input) => input.addEventListener("change", () => { currentPage = 1; load(); }));
+$("#ledger-previous").addEventListener("click", () => { if (currentPage > 1) { currentPage--; load(); } });
+$("#ledger-next").addEventListener("click", () => { if (currentPage < totalPages) { currentPage++; load(); } });
 document.querySelectorAll("[data-add-transaction]").forEach((button) => button.addEventListener("click", () => openEditor()));
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => dialog.close()));
 dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
