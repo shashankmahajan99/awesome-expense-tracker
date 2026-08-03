@@ -2,11 +2,13 @@ const $ = (selector) => document.querySelector(selector);
 const formatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const dialog = $("#transaction-dialog");
 const form = $("#transaction-form");
+const defaultCategories = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"];
 let transactions = [];
 let currentPage = 1;
 let totalPages = 1;
 let loadSequence = 0;
 const pageSize = 25;
+let availableCategories = [...defaultCategories];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -22,6 +24,21 @@ function toast(title, detail) {
 
 function statusLabel(status) {
   return ({ unresolved: "Needs review", explained: "Explained", known: "Known / repeat", deferred: "Deferred", auto_resolved: "Auto resolved" })[status] || status;
+}
+
+function updateCategorySuggestions(values = []) {
+  availableCategories = [...new Set([...defaultCategories, ...values].map((value) => String(value || "").trim()).filter((value) => value && value.toLowerCase() !== "uncategorised"))].sort((left, right) => left.localeCompare(right));
+  $("#categories").replaceChildren(...availableCategories.map((value) => { const option = document.createElement("option"); option.value = value; return option; })); renderCategoryMenu();
+}
+
+function renderCategoryMenu(query = "") {
+  const menu = $("#category-suggestions"); const value = query.trim().toLowerCase(); const visible = availableCategories.filter((category) => !value || category.toLowerCase().includes(value));
+  menu.replaceChildren(...visible.map((category) => { const button = document.createElement("button"); button.type = "button"; button.role = "option"; button.textContent = category; button.addEventListener("click", () => { $("#transaction-category").value = category; toggleCategoryMenu(false); }); return button; }));
+  if (!visible.length) { const empty = document.createElement("small"); empty.textContent = "Keep typing to create this category."; menu.append(empty); }
+}
+
+function toggleCategoryMenu(open) {
+  $("#category-suggestions").hidden = !open; $("#show-categories").setAttribute("aria-expanded", String(open));
 }
 
 function render(data) {
@@ -66,12 +83,12 @@ function toLocalDate(value) {
 }
 
 function openEditor(item = null) {
-  form.reset(); $("#form-error").hidden = true; form.elements.id.value = item?.id || "";
+  form.reset(); toggleCategoryMenu(false); $("#form-error").hidden = true; form.elements.id.value = item?.id || "";
   $("#editor-eyebrow").textContent = item ? "EDIT TRANSACTION" : "NEW TRANSACTION"; $("#editor-title").textContent = item ? "Update this payment." : "Add a payment.";
   $("#delete-transaction").hidden = !item;
   if (item) {
     form.elements.merchant.value = item.merchant; form.elements.amount.value = item.amount;
-    form.elements.occurredAt.value = toLocalDate(item.occurredAt); form.elements.category.value = item.category || "";
+    form.elements.occurredAt.value = toLocalDate(item.occurredAt); form.elements.category.value = item.category && item.category.toLowerCase() !== "uncategorised" ? item.category : "";
     form.elements.accountTag.value = item.accountTag || "";
     form.elements.reviewStatus.value = item.reviewStatus; form.elements.description.value = item.description || ""; form.elements.context.value = item.context || "";
   } else form.elements.occurredAt.value = toLocalDate(new Date());
@@ -85,7 +102,7 @@ async function load() {
     const data = await api(`/api/transactions?${params}`); if (sequence !== loadSequence) return;
     if (currentPage > data.pages) { currentPage = data.pages; return load(); }
     transactions = data.transactions;
-    const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("All categories", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all";
+    const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("All categories", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all"; updateCategorySuggestions(data.categories);
     render(data);
     if (!$("[data-profile-name]").dataset.loaded) {
       const bootstrap = await api("/api/bootstrap"); if (sequence !== loadSequence) return;
@@ -107,8 +124,13 @@ $("#ledger-next").addEventListener("click", () => { if (currentPage < totalPages
 document.querySelectorAll("[data-add-transaction]").forEach((button) => button.addEventListener("click", () => openEditor()));
 document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => dialog.close()));
 dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+$("#show-categories").addEventListener("click", () => { const input = $("#transaction-category"); const open = $("#category-suggestions").hidden; renderCategoryMenu(); toggleCategoryMenu(open); input.focus(); });
+$("#transaction-category").addEventListener("focus", (event) => { if (event.currentTarget.value.toLowerCase() === "uncategorised") event.currentTarget.value = ""; });
+$("#transaction-category").addEventListener("input", (event) => { renderCategoryMenu(event.currentTarget.value); toggleCategoryMenu(true); });
+document.addEventListener("click", (event) => { if (!event.target.closest(".category-control")) toggleCategoryMenu(false); });
 form.addEventListener("submit", async (event) => {
   event.preventDefault(); const values = Object.fromEntries(new FormData(form)); const id = values.id; delete values.id;
+  values.category = String(values.category || "").trim() || "Uncategorised";
   const button = $("#save-transaction"); button.disabled = true; button.textContent = "Saving…";
   try {
     await api(id ? `/api/transactions/${encodeURIComponent(id)}` : "/api/transactions", { method: id ? "PUT" : "POST", body: JSON.stringify(values) });
@@ -122,4 +144,5 @@ $("#delete-transaction").addEventListener("click", async () => {
   catch (error) { $("#form-error").textContent = error.message; $("#form-error").hidden = false; }
 });
 $("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
+updateCategorySuggestions();
 load();

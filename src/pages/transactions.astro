@@ -44,13 +44,13 @@ import AppTopbar from "../components/AppTopbar.astro";
           <label><span>Merchant</span><input name="merchant" required maxlength="160" placeholder="e.g. Swiggy" /></label>
           <label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" /></label>
           <label><span>Date and time</span><input name="occurredAt" required type="datetime-local" /></label>
-          <label><span>Category</span><input name="category" list="categories" placeholder="Uncategorised" /></label>
+          <label><span>Category</span><div class="category-control"><div class="category-input"><input id="transaction-category" name="category" list="categories" autocomplete="off" placeholder="Choose or type a category" /><button id="show-categories" type="button" aria-label="Show category suggestions" aria-expanded="false">⌄</button></div><div class="category-suggestions" id="category-suggestions" role="listbox" hidden></div></div></label>
           <label><span>Account tag</span><input name="accountTag" maxlength="100" placeholder="Savings - ICICI" /></label>
           <label><span>Review status</span><select name="reviewStatus"><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select></label>
           <label class="wide"><span>Description</span><input name="description" maxlength="300" placeholder="Optional bank narration" /></label>
           <label class="wide"><span>Context or note</span><textarea name="context" rows="3" maxlength="1000" placeholder="What was this payment for?"></textarea></label>
         </div>
-        <datalist id="categories"><option value="Food & dining"></option><option value="Groceries"></option><option value="Travel"></option><option value="Shopping"></option><option value="Bills"></option><option value="Health"></option><option value="Entertainment"></option></datalist>
+        <datalist id="categories"></datalist>
         <p class="form-error" id="form-error" hidden></p>
         <div class="sheet-actions editor-actions"><button class="danger-button" id="delete-transaction" type="button" hidden>Delete transaction</button><span></span><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button class="primary-button" type="submit" id="save-transaction">Save transaction</button></div>
       </form>

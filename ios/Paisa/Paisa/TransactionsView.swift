@@ -1,6 +1,28 @@
 import SwiftUI
 import SwiftData
 
+enum PaisaCategories {
+    static let defaults = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"]
+    static func suggestions(from transactions: [PaisaTransaction]) -> [String] {
+        Array(Set(defaults + transactions.map(\.category).filter { !$0.isEmpty && $0.localizedCaseInsensitiveCompare("Uncategorised") != .orderedSame })).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+    static func savedValue(_ value: String) -> String { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Uncategorised" : value.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+struct PaisaCategoryField: View {
+    @Binding var category: String
+    let suggestions: [String]
+    var body: some View {
+        HStack {
+            TextField("Choose or type", text: $category)
+            Menu {
+                ForEach(suggestions, id: \.self) { value in Button(value) { category = value } }
+            } label: { Image(systemName: "chevron.down.circle.fill").foregroundStyle(PaisaTheme.forest).font(.title3) }
+            .accessibilityLabel("Show category suggestions")
+        }
+    }
+}
+
 struct TransactionsView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
@@ -36,20 +58,21 @@ struct TransactionEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
+    @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var allTransactions: [PaisaTransaction]
     let item: PaisaTransaction?
     @State private var merchant = ""; @State private var amount = 0.0; @State private var date = Date(); @State private var category = "Uncategorised"; @State private var accountTag = ""; @State private var note = ""; @State private var status = "unresolved"
     var body: some View {
         NavigationStack {
             Form {
                 Section("Payment") { TextField("Merchant", text: $merchant); TextField("Amount", value: $amount, format: .number).keyboardType(.decimalPad); DatePicker("Date", selection: $date) }
-                Section("Understanding") { TextField("Category", text: $category); TextField("Account tag", text: $accountTag, prompt: Text("Savings - ICICI")); Picker("Status", selection: $status) { Text("Needs review").tag("unresolved"); Text("Explained").tag("explained"); Text("Known / repeat").tag("known"); Text("Deferred").tag("deferred") }; TextField("Context or note", text: $note, axis: .vertical) }
+                Section("Understanding") { LabeledContent("Category") { PaisaCategoryField(category: $category, suggestions: PaisaCategories.suggestions(from: allTransactions)) }; TextField("Account tag", text: $accountTag, prompt: Text("Savings - ICICI")); Picker("Status", selection: $status) { Text("Needs review").tag("unresolved"); Text("Explained").tag("explained"); Text("Known / repeat").tag("known"); Text("Deferred").tag("deferred") }; TextField("Context or note", text: $note, axis: .vertical) }
             }
             .scrollContentBackground(.hidden).background(PaisaTheme.canvas)
             .navigationTitle(item == nil ? "Add transaction" : "Edit transaction")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(merchant.isEmpty || amount <= 0) } }
-        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; category = item.category; accountTag = item.accountTag; note = item.note; status = item.reviewStatus } }
+        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; category = item.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame ? "" : item.category; accountTag = item.accountTag; note = item.note; status = item.reviewStatus } }
     }
-    private func save() { if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.category = category; item.accountTag = accountTag; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, category: category, note: note, reviewStatus: status, accountTag: accountTag)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
+    private func save() { let savedCategory = PaisaCategories.savedValue(category); if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.category = savedCategory; item.accountTag = accountTag; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, category: savedCategory, note: note, reviewStatus: status, accountTag: accountTag)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
 }
 
 struct InsightsView: View {
