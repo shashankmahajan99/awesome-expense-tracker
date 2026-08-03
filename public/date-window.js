@@ -11,12 +11,12 @@
   }
   function query(root) { const value = range(root); const params = new URLSearchParams(); if (value.from) params.set("from", value.from); if (value.to) params.set("to", value.to); if (value.from || value.to) params.set("offset", String(-new Date().getTimezoneOffset())); return params; }
   function setup(root, onChange) {
-    const select = root.querySelector("[data-window-select]"); const from = root.querySelector("[data-window-from]"); const to = root.querySelector("[data-window-to]");
-    const applyPreset = () => { const value = range(root); from.value = value.from || ""; to.value = value.to || ""; onChange?.(value); };
+    const select = root.querySelector("[data-window-select]"); const from = root.querySelector("[data-window-from]"); const to = root.querySelector("[data-window-to]"); const custom = root.querySelector("[data-custom-date-fields]");
+    const applyPreset = () => { const value = range(root); custom.hidden = select.value !== "custom"; if (select.value !== "custom") { from.value = value.from || ""; to.value = value.to || ""; } onChange?.(value); };
     select.addEventListener("change", applyPreset);
     [from, to].forEach((input) => input.addEventListener("change", () => {
       if (from.value && to.value && from.value > to.value) { if (input === from) to.value = from.value; else from.value = to.value; }
-      select.value = "custom"; onChange?.(range(root));
+      select.value = "custom"; custom.hidden = false; onChange?.(range(root));
     }));
     applyPreset();
   }

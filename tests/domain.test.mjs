@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dedupeKey, explainMatches, importance, matchExplanation, normalizeMerchant, shouldNotify } from "../src/domain.mjs";
+import { dedupeKey, duplicateEvidence, explainMatches, importance, matchExplanation, normalizeMerchant, shouldNotify } from "../src/domain.mjs";
 
 test("normalizes merchant names", () => assert.equal(normalizeMerchant("  Acme Pvt. Ltd  "), "Acme"));
 test("dedupe keys are stable", () => {
   const transaction = { merchant: "Zomato", amountPaise: 74000, occurredAt: "2026-08-02T13:18:00Z" };
   assert.equal(dedupeKey(transaction), dedupeKey({ ...transaction }));
 });
+test("overlapping statements from the same account are deduplicated",()=>{const existing={amount_paise:162500,merchant:"ACH D-ICICI LOAN EMI",description:"ACH D-ICICI LOAN EMI",occurred_at:"2026-08-05T12:00:00Z",time_verified:0,account_tag:"ICICI Savings",source:"icici-july.pdf"};const incoming={amountPaise:162500,merchant:"ACH D ICICI LOAN EMI",description:"ACH D-ICICI LOAN EMI",occurredAt:"2026-08-05T12:00:00Z",timeVerified:false,accountTag:"ICICI Savings"};assert.equal(duplicateEvidence(existing,incoming,"icici-august.pdf"),"statement-overlap");});
+test("separate verified payments are not collapsed merely because merchant and amount repeat",()=>{const existing={amount_paise:45000,merchant:"Cafe Coffee Day",occurred_at:"2026-08-05T09:00:00Z",time_verified:1,account_tag:"ICICI Savings",source:"icici.csv"};const incoming={amountPaise:45000,merchant:"Cafe Coffee Day",occurredAt:"2026-08-05T18:00:00Z",timeVerified:true,accountTag:"ICICI Savings"};assert.equal(duplicateEvidence(existing,incoming,"icici.csv"),null);});
 test("batch text locates related merchants", () => {
   const matches = matchExplanation("Petrol and toll were for the Gurgaon trip. Blinkit was groceries.", [{ merchant: "Indian Oil" }, { merchant: "Delhi Gurgaon Toll" }, { merchant: "Blinkit" }, { merchant: "Amazon" }]);
   assert.deepEqual(matches.map((item) => item.merchant), ["Indian Oil", "Delhi Gurgaon Toll", "Blinkit"]);

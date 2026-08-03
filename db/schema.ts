@@ -2,8 +2,9 @@
 // the same statements from drizzle/0000_paisa.sql.
 export const tables = {
   users: ["id", "email", "display_name", "created_at", "last_seen_at"],
-  transactions: ["id", "user_id", "amount_paise", "merchant", "occurred_at", "time_verified", "category", "review_status", "context", "importance_score", "dedupe_key", "source", "account_tag"],
+  transactions: ["id", "user_id", "amount_paise", "merchant", "occurred_at", "time_verified", "category", "review_status", "context", "importance_score", "dedupe_key", "source", "account_tag", "loan_id", "emi_number", "principal_component_paise", "interest_component_paise"],
   payment_accounts: ["id", "user_id", "name", "kind", "institution", "last_four", "aliases", "created_at", "updated_at"],
+  loans: ["id", "user_id", "name", "lender", "loan_type", "account_number", "principal_paise", "outstanding_paise", "interest_rate_bps", "tenure_months", "emi_amount_paise", "start_date", "next_due_date", "status", "no_cost_emi", "total_interest_paise", "processing_fee_paise", "source", "created_at", "updated_at"],
   daily_reviews: ["id", "user_id", "review_date", "state", "unresolved_count", "unresolved_amount_paise", "notified_at", "completed_at"],
   reminder_preferences: ["user_id", "personality", "preferred_time", "quiet_start", "quiet_end", "important_amount_paise", "weekly_cleanup", "timezone"],
   review_groups: ["id", "user_id", "title", "context", "category"],

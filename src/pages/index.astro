@@ -69,6 +69,7 @@ import DateWindow from "../components/DateWindow.astro";
         <div class="review-card">
           <span class="merchant-icon amber large" id="review-icon">A</span><p id="review-meta">TODAY · 5:42 PM</p><h2 id="review-amount">₹8,400</h2><h3 id="review-merchant">Amazon</h3>
           <div class="review-category-block"><span>Choose a category</span><label class="review-category"><span class="sr-only">Category</span><select id="review-category"></select><input id="review-category-custom" type="text" placeholder="Type a new category" hidden /></label><div class="category-chips" id="review-category-chips" aria-label="Quick categories"></div></div>
+          <section class="loan-allocation" id="review-loan-allocation" hidden><strong>Which loan did this payment reduce?</strong><label><span>Loan / EMI plan</span><select id="review-loan"></select></label><div class="review-edit-grid"><label><span>EMI number</span><input id="review-emi-number" type="number" min="1" /></label><label><span>Principal component (₹)</span><input id="review-principal-component" type="number" min="0" step="0.01" /></label><label><span>Interest component (₹)</span><input id="review-interest-component" type="number" min="0" step="0.01" /></label></div><a href="/transactions?newLoan=1">Create a loan or import its PDF →</a></section>
           <details class="review-details"><summary>Edit payment details</summary><div class="review-edit-grid">
             <label><span>Merchant</span><input id="review-edit-merchant" maxlength="160" /></label><label><span>Amount (₹)</span><input id="review-edit-amount" type="number" min="0.01" step="0.01" /></label>
             <label><span>Date</span><input id="review-edit-date" type="date" /></label><label><span>Exact time <small>(optional)</small></span><input id="review-edit-time" type="time" /></label>
@@ -142,6 +143,6 @@ import DateWindow from "../components/DateWindow.astro";
 
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
-    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/client.js?v=20"></script>
+    <script is:inline src="/date-window.js?v=5"></script><script is:inline src="/client.js?v=21"></script>
   </body>
 </html>

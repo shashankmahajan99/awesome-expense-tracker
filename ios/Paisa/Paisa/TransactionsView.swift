@@ -3,7 +3,7 @@ import SwiftData
 import AppIntents
 
 enum PaisaCategories {
-    static let defaults = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"]
+    static let defaults = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Loans & EMI", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"]
     static func suggestions(from transactions: [PaisaTransaction]) -> [String] {
         Array(Set(defaults + transactions.map(\.category).filter { !$0.isEmpty && $0.localizedCaseInsensitiveCompare("Uncategorised") != .orderedSame })).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
@@ -351,12 +351,31 @@ struct PaymentAccountManager: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
     @Query(sort: \PaymentAccount.name) private var accounts: [PaymentAccount]
+    @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var transactions: [PaisaTransaction]
     @State private var name = ""; @State private var kind = "bank"; @State private var institution = ""; @State private var lastFour = ""
+    @State private var editing: PaymentAccount?
+    @State private var deleteError = ""
     var body: some View {
         NavigationStack { Form {
-            if !accounts.isEmpty { Section("Saved") { ForEach(accounts) { account in VStack(alignment: .leading) { Text(account.displayName).fontWeight(.semibold); Text([account.kind.capitalized, account.institution].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted) } } } }
-            Section("New payment account") { TextField("Name", text: $name, prompt: Text("ICICI Salary Account")); Picker("Type", selection: $kind) { Text("Bank account").tag("bank"); Text("Credit / debit card").tag("card"); Text("Wallet").tag("wallet"); Text("Payment app").tag("app"); Text("Cash").tag("cash"); Text("Other").tag("other") }; TextField("Institution", text: $institution, prompt: Text("ICICI")); TextField("Last four (optional)", text: $lastFour).keyboardType(.numberPad); Button("Save payment account") { save() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            if !accounts.isEmpty { Section("Saved") { ForEach(accounts) { account in Button { beginEditing(account) } label: { VStack(alignment: .leading) { Text(account.displayName).fontWeight(.semibold).foregroundStyle(PaisaTheme.ink); Text([account.kind.capitalized, account.institution].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted) } }.swipeActions { Button("Delete", role: .destructive) { remove(account) } } } } }
+            Section(editing == nil ? "New payment method" : "Edit payment method") { TextField("Name", text: $name, prompt: Text("ICICI Salary Account")); Picker("Type", selection: $kind) { Text("Bank account").tag("bank"); Text("Credit / debit card").tag("card"); Text("Wallet").tag("wallet"); Text("Payment app").tag("app"); Text("Cash").tag("cash"); Text("Other").tag("other") }; TextField("Institution", text: $institution, prompt: Text("ICICI")); TextField("Last four (optional)", text: $lastFour).keyboardType(.numberPad); if !deleteError.isEmpty { Text(deleteError).font(.caption).foregroundStyle(.red) }; Button(editing == nil ? "Add payment method" : "Save changes") { save() }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty); if editing != nil { Button("Cancel editing") { reset() } } }
         }.navigationTitle("Payment accounts").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
     }
-    private func save() { context.insert(PaymentAccount(name: name.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, institution: institution.trimmingCharacters(in: .whitespacesAndNewlines), lastFour: lastFour)); try? context.save(); let saved = (try? context.fetch(FetchDescriptor<PaymentAccount>())) ?? []; SharedPaymentAccountDirectory.save(saved.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) }); Task { await sync.syncIfConnected(context: context) }; name = ""; institution = ""; lastFour = "" }
+    private func beginEditing(_ account: PaymentAccount) { editing = account; name = account.name; kind = account.kind; institution = account.institution; lastFour = account.lastFour; deleteError = "" }
+    private func reset() { editing = nil; name = ""; kind = "bank"; institution = ""; lastFour = ""; deleteError = "" }
+    private func publish() { let saved = (try? context.fetch(FetchDescriptor<PaymentAccount>())) ?? []; SharedPaymentAccountDirectory.save(saved.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) }); Task { await sync.syncIfConnected(context: context) } }
+    private func save() {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let account = editing {
+            let previous = account.name
+            account.name = cleanName; account.kind = kind; account.institution = institution.trimmingCharacters(in: .whitespacesAndNewlines)
+            account.lastFour = String(lastFour.filter(\.isNumber).suffix(4)); account.updatedAt = .now
+            transactions.filter { $0.accountTag == previous }.forEach { $0.accountTag = cleanName; $0.updatedAt = .now }
+        } else { context.insert(PaymentAccount(name: cleanName, kind: kind, institution: institution.trimmingCharacters(in: .whitespacesAndNewlines), lastFour: lastFour)) }
+        try? context.save(); publish(); reset()
+    }
+    private func remove(_ account: PaymentAccount) {
+        guard !transactions.contains(where: { $0.accountTag == account.name }) else { deleteError = "Move transactions to another payment method before deleting \(account.name)."; return }
+        context.delete(account); try? context.save(); publish(); if editing?.id == account.id { reset() }
+    }
 }

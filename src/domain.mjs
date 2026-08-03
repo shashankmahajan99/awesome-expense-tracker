@@ -15,6 +15,27 @@ export function dedupeKey(transaction) {
   return (hash >>> 0).toString(16);
 }
 
+const sourceSet = (value = "") => new Set(String(value).split(",").map((item) => item.trim()).filter(Boolean));
+const reference = (value = "") => String(value).match(/(?:Reference|UTR|UPI ref|transaction id|ref(?:erence)? no)[:\s/-]*([A-Z0-9-]{6,40})/i)?.[1]?.toLowerCase() || String(value).match(/\b(?:UPI|NEFT|IMPS|RTGS)[\s/:.-]+(?:[^\s/]+[\s/:.-]+)?([A-Z0-9]{8,40})\b/i)?.[1]?.toLowerCase() || "";
+const tokens = (value = "") => new Set(normalizeMerchant(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2 && !["upi","paytm","payment","transaction","debit"].includes(token)));
+const similarity = (left, right) => { const a=tokens(left),b=tokens(right);if(!a.size||!b.size)return 0;return [...a].filter((token)=>b.has(token)).length/new Set([...a,...b]).size; };
+const narration = (value = "") => normalizeMerchant(String(value)).toLowerCase().replace(/\b\d{6,}\b/g,"#").replace(/[^a-z0-9#]+/g," ").trim();
+
+export function duplicateEvidence(existing, incoming, source = "") {
+  if (Number(existing.amountPaise ?? existing.amount_paise) !== Number(incoming.amountPaise)) return null;
+  const incomingReference=reference(`${incoming.description||""} ${incoming.context||""}`),existingReference=reference(`${existing.description||""} ${existing.context||""}`);
+  if(incomingReference&&existingReference)return incomingReference===existingReference?"reference":null;
+  const sameDay=String(existing.occurredAt||existing.occurred_at).slice(0,10)===String(incoming.occurredAt).slice(0,10);if(!sameDay)return null;
+  const incomingSources=sourceSet(source),crossSource=![...sourceSet(existing.source)].some((value)=>incomingSources.has(value));
+  const sameAccount=Boolean(incoming.accountTag)&&String(existing.accountTag??existing.account_tag??"").toLowerCase()===String(incoming.accountTag).toLowerCase();
+  const exactNarration=narration(`${existing.merchant} ${existing.description||""}`).length>5&&narration(`${existing.merchant} ${existing.description||""}`)===narration(`${incoming.merchant} ${incoming.description||""}`);
+  const score=similarity(existing.merchant,incoming.merchant),bothTimed=Boolean(existing.timeVerified??existing.time_verified)&&incoming.timeVerified,closeTime=bothTimed&&Math.abs(new Date(existing.occurredAt||existing.occurred_at)-new Date(incoming.occurredAt))<=10*60*1000;
+  if(sameAccount&&closeTime&&score>=.5)return "account-time";
+  if(sameAccount&&!bothTimed&&(exactNarration||score>=.85))return "statement-overlap";
+  if(crossSource&&score>=.66)return "cross-source";
+  return null;
+}
+
 const explanationCategories = {
   "Food & dining": ["food", "meal", "dinner", "lunch", "breakfast", "restaurant", "cafe", "swiggy", "zomato", "dominos", "pizza"],
   Groceries: ["grocery", "groceries", "supermarket", "blinkit", "zepto", "bigbasket", "instamart"],

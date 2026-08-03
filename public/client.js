@@ -3,7 +3,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const dialogs = { review: $("#review-dialog"), batch: $("#batch-dialog"), preferences: $("#preferences-dialog"), reset: $("#reset-dialog"), completion: $("#completion-dialog"), import: $("#import-dialog") };
 const formatter = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const tones = ["amber", "red", "blue", "green", "yellow"];
-const defaultCategories = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"];
+const defaultCategories = ["Food & dining", "Groceries", "Travel", "Shopping", "Bills", "Loans & EMI", "Health", "Entertainment", "Subscriptions", "Education", "Personal care", "Home", "Gifts", "Insurance", "Investments", "Taxes", "Transfers", "Work"];
 let items = [];
 let current = 0;
 let reviewedCount = 0;
@@ -14,6 +14,7 @@ let activeRecognition = null;
 let reviewSaving = false;
 let batchMatching = false;
 let paymentAccounts = [];
+let loans = [];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -42,7 +43,8 @@ function categorySuggestion(value = "") {
     ["Groceries", /blinkit|zepto|bigbasket|instamart|grocery|supermarket/],
     ["Travel", /uber|ola|rapido|metro|railway|irctc|airlines|flight|petrol|diesel|fuel|indian oil|parking|toll/],
     ["Shopping", /amazon|flipkart|myntra|ajio|retail|store/],
-    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|emi|dcc fee|service fee|annual fee/],
+    ["Loans & EMI", /\bloan\b|\bemi\b|instalment|installment/],
+    ["Bills", /electricity|broadband|airtel|jio|vodafone|recharge|utility|rent|dcc fee|service fee|annual fee/],
     ["Health", /hospital|pharmacy|medical|apollo|doctor|clinic|medicine/],
     ["Entertainment", /xsolla|steam|playstation|netflix|spotify|hotstar|cinema|bookmyshow|gaming|game/],
     ["Taxes", /\bigst\b|\bgst\b|\btax\b/],
@@ -62,7 +64,7 @@ function mapTransaction(transaction, index) {
     icon: merchant.slice(0, 2).toUpperCase(), tone: tones[index % tones.length],
     status: "Needs context", detail: category.toLowerCase() !== "uncategorised" ? `Suggested category: ${category}` : "Choose a category or add a quick note",
     occurredAt: transaction.occurredAt, timeVerified: Boolean(transaction.timeVerified), amountPaise: Number(transaction.amountPaise || 0), category,
-    description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus, accountTag: transaction.accountTag || "",
+    description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus, accountTag: transaction.accountTag || "", loanId: transaction.loanId || "", emiNumber: transaction.emiNumber, principalComponentPaise: transaction.principalComponentPaise || 0, interestComponentPaise: transaction.interestComponentPaise || 0,
   };
 }
 
@@ -122,16 +124,19 @@ function renderReview() {
   const date = new Date(item.occurredAt), local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
   $("#review-edit-merchant").value = item.merchant; $("#review-edit-amount").value = String(item.amountPaise / 100); $("#review-edit-date").value = local.slice(0, 10); $("#review-edit-time").value = item.timeVerified ? local.slice(11, 16) : "";
   const account = $("#review-edit-account"); account.replaceChildren(new Option("No payment account", ""), ...paymentAccounts.map((value) => new Option(value.name, value.name))); if (item.accountTag && !paymentAccounts.some((value) => value.name === item.accountTag)) account.append(new Option(item.accountTag, item.accountTag)); account.value = item.accountTag || "";
+  const loan=$("#review-loan");loan.replaceChildren(new Option("Choose a loan or EMI plan",""),...loans.map((value)=>new Option(value.name,value.id)));loan.value=item.loanId||"";$("#review-emi-number").value=item.emiNumber||"";$("#review-principal-component").value=item.principalComponentPaise/100||"";$("#review-interest-component").value=item.interestComponentPaise/100||"";
   populateReviewCategories(item.category);
+  toggleReviewLoan();
 }
 
 function populateReviewCategories(selected = "Uncategorised") {
   const select = $("#review-category"); const categories = [...new Set([...defaultCategories, ...items.map((item) => item.category).filter(Boolean), selected].filter(Boolean))].sort();
   select.replaceChildren(...categories.map((value) => new Option(value, value)), new Option("Add a new category…", "__custom")); select.value = categories.includes(selected) ? selected : "Uncategorised"; $("#review-category-custom").hidden = true;
-  const chips = $("#review-category-chips"); chips?.replaceChildren(...defaultCategories.slice(0, 7).map((value) => { const button = document.createElement("button"); button.type = "button"; button.textContent = value; button.classList.toggle("active", value === selected); button.addEventListener("click", () => { select.value = value; $("#review-category-custom").hidden = true; chips.querySelectorAll("button").forEach((node) => node.classList.toggle("active", node === button)); }); return button; }));
+  const chips = $("#review-category-chips"); chips?.replaceChildren(...defaultCategories.slice(0, 8).map((value) => { const button = document.createElement("button"); button.type = "button"; button.textContent = value; button.classList.toggle("active", value === selected); button.addEventListener("click", () => { select.value = value; $("#review-category-custom").hidden = true; chips.querySelectorAll("button").forEach((node) => node.classList.toggle("active", node === button)); toggleReviewLoan(); }); return button; }));
 }
 
 function reviewCategory() { const selected = $("#review-category").value; return selected === "__custom" ? $("#review-category-custom").value.trim() || "Uncategorised" : selected || "Uncategorised"; }
+function toggleReviewLoan(){$("#review-loan-allocation").hidden=!/\b(?:loan|emi|instalment|installment)\b/i.test(reviewCategory());}
 
 function openReview(id) {
   if (id) current = Math.max(0, items.findIndex((item) => item.id === String(id)));
@@ -148,7 +153,8 @@ async function resolveCurrent(action, message, context = "") {
     const category = reviewCategory(); const merchant = $("#review-edit-merchant").value.trim(); const amount = Number($("#review-edit-amount").value); const occurredDate = $("#review-edit-date").value; const occurredTime = $("#review-edit-time").value;
     if (!merchant || !amount || !occurredDate) throw new Error("Merchant, amount, and date are required");
     const occurredAt = new Date(`${occurredDate}T${occurredTime || "12:00"}:00`).toISOString();
-    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify({ merchant, amount, occurredAt, timeVerified: Boolean(occurredTime), category, context, description: item.description || "", accountTag: $("#review-edit-account").value, reviewStatus: item.reviewStatus }) });
+    const needsLoan=/\b(?:loan|emi|instalment|installment)\b/i.test(category);if(needsLoan&&!$("#review-loan").value)throw new Error("Choose which loan or EMI plan this payment belongs to");
+    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify({ merchant, amount, occurredAt, timeVerified: Boolean(occurredTime), category, context, description: item.description || "", accountTag: $("#review-edit-account").value, reviewStatus: item.reviewStatus,loanId:needsLoan?$("#review-loan").value:"",emiNumber:$("#review-emi-number").value,principalComponent:$("#review-principal-component").value,interestComponent:$("#review-interest-component").value }) });
     await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
@@ -360,7 +366,7 @@ async function loadDashboard() {
   try {
     const query = window.PaisaDateWindow.query($("#dashboard-date-window")).toString(); const suffix = query ? `?${query}` : "";
     const [data, insights] = await Promise.all([api(`/api/bootstrap${suffix}`), api(`/api/insights${suffix}`)]);
-    items = data.transactions.map(mapTransaction); paymentAccounts = data.accounts || []; reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
+    items = data.transactions.map(mapTransaction); paymentAccounts = data.accounts || []; loans=data.loans||[]; reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
     const firstName = (data.user.name || "there").split(" ")[0]; $(".topbar h1").textContent = `Good evening, ${firstName}.`;
     $("[data-profile-name]").textContent = data.user.name || firstName; $("[data-profile-email]").textContent = data.user.email || "Private account";
     const understood = data.totals.count ? Math.round(((data.totals.count - data.summary.count) / data.totals.count) * 100) : 100;
@@ -397,7 +403,8 @@ $$('[data-action]').forEach((button) => button.addEventListener("click", () => {
   else { const merchant = items[current]?.merchant || ""; dialogs.review.close(); $("#batch-input").value = `${merchant} was part of `; dialogs.batch.showModal(); $("#batch-input").focus(); }
 }));
 $("#voice-button")?.addEventListener("click", () => startVoice($("#answer-input"), $("#voice-button")));
-$("#review-category")?.addEventListener("change", (event) => { const custom = $("#review-category-custom"); custom.hidden = event.currentTarget.value !== "__custom"; if (!custom.hidden) custom.focus(); });
+$("#review-category")?.addEventListener("change", (event) => { const custom = $("#review-category-custom"); custom.hidden = event.currentTarget.value !== "__custom"; if (!custom.hidden) custom.focus(); toggleReviewLoan(); });
+$("#review-category-custom")?.addEventListener("input",toggleReviewLoan);
 
 function populateBatchCategories() { const select = $("#batch-category"); if (!select) return; const chosen = select.value; const values = [...new Set([...defaultCategories, ...items.map((item) => item.category).filter((value) => value && value !== "Uncategorised")])].sort(); select.replaceChildren(new Option("Infer from what I wrote", ""), ...values.map((value) => new Option(value, value))); select.value = values.includes(chosen) ? chosen : ""; }
 $$('[data-open-batch]').forEach((button) => button.addEventListener("click", () => { $("#batch-result").hidden = true; $("#batch-input").value = ""; populateBatchCategories(); dialogs.batch.showModal(); }));

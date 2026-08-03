@@ -1,9 +1,18 @@
-<dialog class="sheet-dialog quick-review-dialog" id="quick-review-dialog">
-  <div class="sheet-top"><div><span class="eyebrow">DAILY REVIEW</span><h2>Review without losing your place.</h2></div><button type="button" data-close-quick-review aria-label="Close">×</button></div>
-  <div id="quick-review-empty" class="ledger-empty" hidden><h3>Everything is understood.</h3><p>There are no unresolved payments.</p></div>
-  <form id="quick-review-form"><div class="quick-review-progress"><strong id="quick-review-position">1 of 1</strong><span><button type="button" id="quick-review-previous">← Previous</button><button type="button" id="quick-review-next">Next →</button></span></div>
-    <div class="editor-grid"><label><span>Merchant</span><input name="merchant" required maxlength="160" /></label><label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" /></label><label><span>Date</span><input name="occurredDate" required type="date" /></label><label><span>Exact time <small>(optional)</small></span><input name="occurredTime" type="time" /></label><label><span>Category</span><input name="category" list="quick-review-categories" placeholder="Choose or type a category" /><datalist id="quick-review-categories"><option>Food & dining</option><option>Groceries</option><option>Travel</option><option>Shopping</option><option>Bills</option><option>Health</option><option>Entertainment</option><option>Work</option></datalist></label><label class="wide"><span>Context or note</span><textarea name="context" rows="3"></textarea></label></div>
-    <div class="sheet-actions"><button class="secondary-button" type="button" id="quick-review-later">Leave unresolved & next</button><button class="primary-button" type="submit">Save & review next</button></div>
-  </form>
+<dialog class="review-dialog" id="quick-review-dialog">
+  <div class="review-shell">
+    <div class="review-top"><button class="back-button" type="button" data-close-quick-review>← Back</button><div><span class="eyebrow">DAILY REVIEW</span><strong><span id="quick-review-position">1</span> of <span id="quick-review-total">1</span></strong></div><span class="review-nav"><button type="button" id="quick-review-previous" aria-label="Previous payment">←</button><button type="button" id="quick-review-next" aria-label="Next payment">→</button><button type="button" data-close-quick-review aria-label="Close review">×</button></span></div>
+    <div class="progress"><i id="quick-review-progress"></i></div>
+    <div id="quick-review-empty" class="ledger-empty" hidden><h3>Everything is understood.</h3><p>There are no unresolved payments in this period.</p></div>
+    <form id="quick-review-form" class="review-card">
+      <span class="merchant-icon amber large" id="quick-review-icon">₹</span><p id="quick-review-meta"></p><h2 id="quick-review-amount"></h2><h3 id="quick-review-merchant"></h3>
+      <div class="review-category-block"><span>Choose a category</span><label class="review-category"><span class="sr-only">Category</span><select name="category"></select><input name="customCategory" type="text" placeholder="Type a new category" hidden /></label><div class="category-chips" id="quick-review-category-chips"></div></div>
+      <section class="loan-allocation" id="quick-review-loan-fields" hidden><strong>Which loan did this payment reduce?</strong><label><span>Loan / EMI plan</span><select name="loanId"></select></label><div class="review-edit-grid"><label><span>EMI number</span><input name="emiNumber" type="number" min="1" /></label><label><span>Principal component (₹)</span><input name="principalComponent" type="number" min="0" step="0.01" /></label><label><span>Interest component (₹)</span><input name="interestComponent" type="number" min="0" step="0.01" /></label></div><a href="/transactions?newLoan=1">Create a new loan or import its PDF →</a></section>
+      <details class="review-details"><summary>Edit payment details</summary><div class="review-edit-grid"><label><span>Merchant</span><input name="merchant" required maxlength="160" /></label><label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" /></label><label><span>Date</span><input name="occurredDate" required type="date" /></label><label><span>Exact time <small>(optional)</small></span><input name="occurredTime" type="time" /></label><label><span>Payment account</span><select name="accountTag"></select></label></div></details>
+      <div class="prompt"><span>✦</span><p><strong id="quick-review-question">What should you remember about this?</strong><small>Choose a category; add a note only if it will help later.</small></p></div>
+      <label class="answer-field"><span class="sr-only">Context or note</span><input name="context" type="text" placeholder="e.g. Office chair, reimbursable" /><button type="submit" aria-label="Save and review next"><span>✓</span></button></label>
+      <div class="quick-actions"><button type="button" id="quick-review-known">Save category & mark known</button><button type="button" id="quick-review-later">Review later</button></div>
+    </form>
+    <p class="keyboard-hint">Swipe or use arrows to move · Enter to save · Esc to close</p>
+  </div>
 </dialog>
-<script is:inline src="/quick-review.js?v=1"></script>
+<script is:inline src="/quick-review.js?v=2"></script>

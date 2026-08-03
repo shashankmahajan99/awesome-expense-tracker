@@ -118,27 +118,23 @@ struct PaisaDateWindowPicker: View {
     @Binding var customTo: Date
     var title: String = "Activity period"
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(title, systemImage: "calendar").font(.subheadline.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
-                Spacer()
-                Picker("Period", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "calendar").foregroundStyle(PaisaTheme.forest)
+                Text("Period").font(.caption.weight(.semibold)).foregroundStyle(PaisaTheme.muted)
+                Spacer(minLength: 4)
+                Menu { Picker("Period", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } } } label: { HStack(spacing: 5) { Text(selection.rawValue).font(.subheadline.weight(.semibold)); Image(systemName: "chevron.down").font(.caption2) }.foregroundStyle(PaisaTheme.forest) }
             }
             if selection == .custom {
-                HStack(spacing: 14) {
-                    dateField("From", value: $customFrom)
-                    dateField("To", value: $customTo)
-                }
+                ViewThatFits(in: .horizontal) { HStack(spacing: 8) { dateField("From", value: $customFrom); dateField("To", value: $customTo) }; VStack(spacing: 6) { dateField("From", value: $customFrom); dateField("To", value: $customTo) } }
             }
         }
-        .padding(12)
-        .background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(PaisaTheme.line.opacity(0.8)))
+        .padding(.vertical, 4)
     }
     private func dateField(_ title: String, value: Binding<Date>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title.uppercased()).font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1).foregroundStyle(PaisaTheme.muted)
-            DatePicker(title, selection: value, displayedComponents: .date).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+            DatePicker(title, selection: value, displayedComponents: .date).datePickerStyle(.compact).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

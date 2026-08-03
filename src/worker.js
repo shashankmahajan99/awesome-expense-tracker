@@ -1,13 +1,15 @@
-import { dedupeKey, explainMatches, importance, normalizeMerchant, shouldNotify } from "./domain.mjs";
+import { dedupeKey, duplicateEvidence, explainMatches, importance, normalizeMerchant, shouldNotify } from "./domain.mjs";
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, display_name TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS reminder_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, personality TEXT NOT NULL DEFAULT 'Balanced', preferred_time TEXT NOT NULL DEFAULT '21:30', quiet_start TEXT NOT NULL DEFAULT '23:00', quiet_end TEXT NOT NULL DEFAULT '07:00', important_amount_paise INTEGER NOT NULL DEFAULT 100000, minimum_total_paise INTEGER NOT NULL DEFAULT 30000, weekly_cleanup INTEGER NOT NULL DEFAULT 1, timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS review_groups (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, context TEXT, category TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, time_verified INTEGER NOT NULL DEFAULT 0, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
+  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, time_verified INTEGER NOT NULL DEFAULT 0, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', loan_id TEXT REFERENCES loans(id) ON DELETE SET NULL, emi_number INTEGER, principal_component_paise INTEGER NOT NULL DEFAULT 0, interest_component_paise INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
   `CREATE INDEX IF NOT EXISTS idx_transactions_review_queue ON transactions(user_id, review_status, occurred_at, importance_score DESC)`,
   `CREATE TABLE IF NOT EXISTS payment_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'bank', institution TEXT NOT NULL DEFAULT '', last_four TEXT NOT NULL DEFAULT '', aliases TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id,name))`,
   `CREATE INDEX IF NOT EXISTS idx_payment_accounts_user_kind ON payment_accounts(user_id,kind,name)`,
+  `CREATE TABLE IF NOT EXISTS loans (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, lender TEXT NOT NULL DEFAULT '', loan_type TEXT NOT NULL DEFAULT 'personal', account_number TEXT NOT NULL DEFAULT '', principal_paise INTEGER NOT NULL DEFAULT 0, outstanding_paise INTEGER NOT NULL DEFAULT 0, interest_rate_bps INTEGER NOT NULL DEFAULT 0, tenure_months INTEGER NOT NULL DEFAULT 0, emi_amount_paise INTEGER NOT NULL DEFAULT 0, start_date TEXT, next_due_date TEXT, status TEXT NOT NULL DEFAULT 'active', no_cost_emi INTEGER NOT NULL DEFAULT 0, total_interest_paise INTEGER NOT NULL DEFAULT 0, processing_fee_paise INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'manual', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id,name))`,
+  `CREATE INDEX IF NOT EXISTS idx_loans_user_status ON loans(user_id,status,next_due_date)`,
   `CREATE TABLE IF NOT EXISTS daily_reviews (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', unresolved_count INTEGER NOT NULL DEFAULT 0, unresolved_amount_paise INTEGER NOT NULL DEFAULT 0, notified_at TEXT, started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS notification_deliveries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, status TEXT NOT NULL, provider_message_id TEXT, attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, metadata TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -110,10 +112,26 @@ async function savePaymentAccount(db, user, payload) {
   const institution = String(payload.institution || "").trim().slice(0, 80), lastFour = String(payload.lastFour || "").replace(/\D/g, "").slice(-4);
   const aliases = [...new Set((Array.isArray(payload.aliases) ? payload.aliases : []).map((value) => String(value).trim().toLowerCase()).filter(Boolean))].slice(0, 20);
   if (!name) return json({ error: "Account name is required" }, 400);
-  const existing = await db.prepare("SELECT id FROM payment_accounts WHERE user_id=? AND lower(name)=lower(?)").bind(user.id, name).first(); const id = existing?.id || crypto.randomUUID();
+  const requestedId = /^[0-9a-f-]{36}$/i.test(String(payload.id || "")) ? String(payload.id) : null;
+  const existing = requestedId ? await db.prepare("SELECT id,name FROM payment_accounts WHERE user_id=? AND id=?").bind(user.id, requestedId).first() : await db.prepare("SELECT id,name FROM payment_accounts WHERE user_id=? AND lower(name)=lower(?)").bind(user.id, name).first(); const id = existing?.id || crypto.randomUUID();
+  if(requestedId){const conflicting=await db.prepare("SELECT id FROM payment_accounts WHERE user_id=? AND lower(name)=lower(?) AND id<>?").bind(user.id,name,id).first();if(conflicting)return json({error:"A payment method with this name already exists"},409);}
   await db.prepare("INSERT INTO payment_accounts (id,user_id,name,kind,institution,last_four,aliases) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,institution=excluded.institution,last_four=excluded.last_four,aliases=excluded.aliases,updated_at=CURRENT_TIMESTAMP").bind(id, user.id, name, kind, institution, lastFour, JSON.stringify(aliases)).run();
+  if(existing?.name&&existing.name!==name)await db.prepare("UPDATE transactions SET account_tag=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND account_tag=?").bind(name,user.id,existing.name).run();
   await audit(db, user.id, existing ? "payment_account.updated" : "payment_account.created", "payment_account", id); const row = await db.prepare("SELECT * FROM payment_accounts WHERE id=? AND user_id=?").bind(id, user.id).first(); return json({ account: mapPaymentAccount(row) }, existing ? 200 : 201);
 }
+
+function moneyPaise(value) { const number = Number(value || 0); return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) : 0; }
+function safeDate(value) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? String(value) : null; }
+function mapLoan(row) { const principalPaise=Number(row.principal_paise||0),principalPaidPaise=Number(row.principal_paid_paise||0),storedOutstanding=Number(row.outstanding_paise||0);return { id: row.id, name: row.name, lender: row.lender || "", loanType: row.loan_type, accountNumber: row.account_number || "", principalPaise, outstandingPaise: storedOutstanding||Math.max(0,principalPaise-principalPaidPaise), principalPaidPaise, interestPaidPaise:Number(row.interest_paid_paise||0), linkedEmiCount:Number(row.linked_emi_count||0), interestRate: Number(row.interest_rate_bps || 0) / 100, tenureMonths: Number(row.tenure_months || 0), emiAmountPaise: Number(row.emi_amount_paise || 0), startDate: row.start_date, nextDueDate: row.next_due_date, status: row.status, noCostEmi: Boolean(row.no_cost_emi), totalInterestPaise: Number(row.total_interest_paise || 0), processingFeePaise: Number(row.processing_fee_paise || 0), source: row.source || "manual", updatedAt: timestamp(new Date(String(row.updated_at).replace(" ", "T") + (String(row.updated_at).includes("Z") ? "" : "Z"))) }; }
+async function listLoans(db, userId) { const rows = await db.prepare("SELECT l.*,COUNT(t.id) AS linked_emi_count,COALESCE(SUM(t.principal_component_paise),0) AS principal_paid_paise,COALESCE(SUM(t.interest_component_paise),0) AS interest_paid_paise FROM loans l LEFT JOIN transactions t ON t.loan_id=l.id AND t.user_id=l.user_id WHERE l.user_id=? GROUP BY l.id ORDER BY CASE l.status WHEN 'active' THEN 0 ELSE 1 END,l.next_due_date,l.name").bind(userId).all(); return rows.results.map(mapLoan); }
+async function saveLoan(db, user, payload) {
+  const name = String(payload.name || "").trim().slice(0, 120), lender = String(payload.lender || "").trim().slice(0, 100); if (!name) return json({ error: "Loan name is required" }, 400);
+  const requestedId = /^[0-9a-f-]{36}$/i.test(String(payload.id || "")) ? String(payload.id) : null; const named = requestedId ? null : await db.prepare("SELECT id FROM loans WHERE user_id=? AND lower(name)=lower(?)").bind(user.id,name).first(); const id = requestedId || named?.id || crypto.randomUUID(); const loanType = ["personal","home","vehicle","education","consumer","credit_card","other"].includes(payload.loanType) ? payload.loanType : "personal"; const status = ["active","closed","paused"].includes(payload.status) ? payload.status : "active"; const noCost = Boolean(payload.noCostEmi); const interestRateBps = noCost ? 0 : Math.max(0, Math.min(100000, Math.round(Number(payload.interestRate || 0) * 100)));
+  const existing = await db.prepare("SELECT id FROM loans WHERE id=? AND user_id=?").bind(id, user.id).first();
+  await db.prepare("INSERT INTO loans (id,user_id,name,lender,loan_type,account_number,principal_paise,outstanding_paise,interest_rate_bps,tenure_months,emi_amount_paise,start_date,next_due_date,status,no_cost_emi,total_interest_paise,processing_fee_paise,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,lender=excluded.lender,loan_type=excluded.loan_type,account_number=excluded.account_number,principal_paise=excluded.principal_paise,outstanding_paise=excluded.outstanding_paise,interest_rate_bps=excluded.interest_rate_bps,tenure_months=excluded.tenure_months,emi_amount_paise=excluded.emi_amount_paise,start_date=excluded.start_date,next_due_date=excluded.next_due_date,status=excluded.status,no_cost_emi=excluded.no_cost_emi,total_interest_paise=excluded.total_interest_paise,processing_fee_paise=excluded.processing_fee_paise,source=excluded.source,updated_at=CURRENT_TIMESTAMP").bind(id,user.id,name,lender,loanType,String(payload.accountNumber || "").trim().slice(-40),moneyPaise(payload.principal),moneyPaise(payload.outstanding),interestRateBps,Math.max(0,Math.min(1200,Number.parseInt(payload.tenureMonths || "0",10)||0)),moneyPaise(payload.emiAmount),safeDate(payload.startDate),safeDate(payload.nextDueDate),status,noCost?1:0,noCost?0:moneyPaise(payload.totalInterest),moneyPaise(payload.processingFee),String(payload.source || "manual").slice(0,80)).run();
+  await audit(db,user.id,existing?"loan.updated":"loan.created","loan",id); const row=await db.prepare("SELECT * FROM loans WHERE id=? AND user_id=?").bind(id,user.id).first(); return json({loan:mapLoan(row)},existing?200:201);
+}
+async function deleteLoan(db,user,id){const linked=await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE user_id=? AND loan_id=?").bind(user.id,id).first();if(Number(linked?.count||0))return json({error:"Unlink this loan from its EMI transactions before deleting it"},409);const result=await db.prepare("DELETE FROM loans WHERE id=? AND user_id=?").bind(id,user.id).run();if(!result.meta?.changes)return json({error:"Loan not found"},404);return json({deleted:true});}
 
 async function deletePaymentAccount(db, user, id) {
   const row = await db.prepare("SELECT name FROM payment_accounts WHERE id=? AND user_id=?").bind(id, user.id).first(); if (!row) return json({ error: "Payment account not found" }, 404);
@@ -136,6 +154,10 @@ function mapTransaction(row) {
     importanceScore: Number(row.importance_score),
     source: row.source,
     accountTag: row.account_tag || "",
+    loanId: row.loan_id || "",
+    emiNumber: row.emi_number == null ? null : Number(row.emi_number),
+    principalComponentPaise: Number(row.principal_component_paise || 0),
+    interestComponentPaise: Number(row.interest_component_paise || 0),
     updatedAt: timestamp(new Date(String(row.updated_at).replace(" ", "T") + (String(row.updated_at).includes("Z") ? "" : "Z"))),
     isDeleted: false,
   };
@@ -143,12 +165,6 @@ function mapTransaction(row) {
 
 function sourceSet(value = "") { return new Set(String(value).split(",").map((item) => item.trim()).filter(Boolean)); }
 function joinedSources(left, right) { return [...new Set([...sourceSet(left), ...sourceSet(right)])].sort().join(","); }
-function merchantTokens(value = "") { return new Set(normalizeMerchant(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2 && !["upi", "paytm", "payment", "transaction", "debit"].includes(token))); }
-function merchantSimilarity(left, right) {
-  const a = merchantTokens(left); const b = merchantTokens(right); if (!a.size || !b.size) return 0;
-  const intersection = [...a].filter((token) => b.has(token)).length; return intersection / new Set([...a, ...b]).size;
-}
-function referenceFrom(value = "") { return String(value).match(/(?:Reference|UTR|UPI ref|transaction id)[:\s-]*([A-Z0-9-]{6,40})/i)?.[1]?.toLowerCase() || ""; }
 function combinedAccountTag(left = "", right = "") {
   if (!left) return right; if (!right || left === right) return left;
   const value = `${left} ${right}`; const bank = ["ICICI", "HDFC", "Axis", "SBI", "Kotak", "YES Bank"].find((name) => value.toLowerCase().includes(name.toLowerCase()));
@@ -159,13 +175,7 @@ function combinedAccountTag(left = "", right = "") {
 async function verifiedDuplicate(db, userId, input, source) {
   const date = new Date(input.occurredAt); const start = new Date(date.getTime() - 86400000).toISOString(); const end = new Date(date.getTime() + 86400000).toISOString();
   const rows = await db.prepare("SELECT * FROM transactions WHERE user_id=? AND amount_paise=? AND occurred_at BETWEEN ? AND ?").bind(userId, input.amountPaise, start, end).all();
-  const incomingReference = referenceFrom(`${input.description} ${input.context}`);
-  return rows.results.find((row) => {
-    const existingReference = referenceFrom(`${row.description || ""} ${row.context || ""}`);
-    if (incomingReference && existingReference) return incomingReference === existingReference;
-    const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(row.source)].some((value) => incomingSources.has(value));
-    return crossSource && merchantSimilarity(row.merchant, input.merchant) >= .66;
-  });
+  return rows.results.find((row) => duplicateEvidence(row,input,source));
 }
 
 async function mergeVerifiedDuplicate(db, userId, row, input, source) {
@@ -266,15 +276,15 @@ async function unresolvedSummary(db, userId, window = { clauses: [], bindings: [
 
 async function bootstrap(db, user, url) {
   const window = dateWindow(url); const windowPredicate = window.clauses.length ? ` AND ${window.clauses.join(" AND ")}` : "";
-  const [queue, preferences, summary, totals, allSummary, accounts] = await Promise.all([
+  const [queue, preferences, summary, totals, allSummary, accounts, loans] = await Promise.all([
     db.prepare(`SELECT * FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0${windowPredicate} ORDER BY importance_score DESC,occurred_at DESC LIMIT 2000`).bind(user.id, ...window.bindings).all(),
     getPreferences(db, user.id), unresolvedSummary(db, user.id, window),
     db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE user_id=?${windowPredicate}`).bind(user.id, ...window.bindings).first(),
-    unresolvedSummary(db, user.id), listPaymentAccounts(db, user.id),
+    unresolvedSummary(db, user.id), listPaymentAccounts(db, user.id), listLoans(db,user.id),
   ]);
   const today = localDate(preferences.timezone);
   await db.prepare("INSERT INTO daily_reviews (id,user_id,review_date,state,unresolved_count,unresolved_amount_paise) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,review_date) DO UPDATE SET unresolved_count=excluded.unresolved_count,unresolved_amount_paise=excluded.unresolved_amount_paise,updated_at=CURRENT_TIMESTAMP").bind(crypto.randomUUID(), user.id, today, allSummary.count ? "scheduled" : "not_required", allSummary.count, allSummary.amountPaise).run();
-  return { user, transactions: queue.results.map(mapTransaction), accounts, preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) }, window: { from: window.from, to: window.to } };
+  return { user, transactions: queue.results.map(mapTransaction), accounts, loans, preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) }, window: { from: window.from, to: window.to } };
 }
 
 async function importTransactions(db, user, payload) {
@@ -308,18 +318,25 @@ function transactionInput(payload, existing = {}) {
   const parsedDate = new Date(dateValue);
   if (!merchant || !Number.isFinite(amountPaise) || amountPaise <= 0 || Number.isNaN(parsedDate.getTime())) return null;
   const occurredAt = parsedDate.toISOString();
+  const rawDescription=String(payload.description ?? existing.description ?? "").slice(0,300);const reference=String(payload.reference||"").replace(/[^A-Za-z0-9-]/g,"").slice(0,40);const description=reference&&!rawDescription.toLowerCase().includes(reference.toLowerCase())?`${rawDescription}${rawDescription?" · ":""}Reference: ${reference}`.slice(0,300):rawDescription;
   return {
     merchant,
     amountPaise,
     occurredAt,
     timeVerified: typeof payload.timeVerified === "boolean" ? payload.timeVerified : Boolean(existing.time_verified),
-    description: String(payload.description ?? existing.description ?? "").slice(0, 300),
+    description,
     category: String(payload.category ?? existing.category ?? "Uncategorised").slice(0, 80),
     context: String(payload.context ?? existing.context ?? "").slice(0, 1000),
     reviewStatus: ["unresolved", "explained", "known", "deferred", "auto_resolved"].includes(payload.reviewStatus) ? payload.reviewStatus : (existing.review_status || "unresolved"),
     accountTag: String(payload.accountTag ?? existing.account_tag ?? "").slice(0, 100),
+    loanId: /^[0-9a-f-]{36}$/i.test(String(payload.loanId ?? existing.loan_id ?? "")) ? String(payload.loanId ?? existing.loan_id) : "",
+    emiNumber: Math.max(0, Number.parseInt(payload.emiNumber ?? existing.emi_number ?? "0", 10) || 0) || null,
+    principalComponentPaise: moneyPaise(payload.principalComponent ?? (Number(existing.principal_component_paise || 0) / 100)),
+    interestComponentPaise: moneyPaise(payload.interestComponent ?? (Number(existing.interest_component_paise || 0) / 100)),
   };
 }
+
+async function invalidLoanAllocation(db,user,input){if(input.principalComponentPaise+input.interestComponentPaise>input.amountPaise)return "Principal and interest components cannot exceed the payment amount";if(!input.loanId)return null;const loan=await db.prepare("SELECT id FROM loans WHERE id=? AND user_id=?").bind(input.loanId,user.id).first();return loan?null:"Choose a loan that belongs to this account";}
 
 async function listTransactions(db, user, url) {
   const search = (url.searchParams.get("search") || "").trim().toLowerCase().slice(0, 120);
@@ -349,9 +366,10 @@ async function listTransactions(db, user, url) {
 async function createTransaction(db, user, payload) {
   const input = transactionInput(payload);
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
+  const loanError=await invalidLoanAllocation(db,user,input);if(loanError)return json({error:loanError},400);
   const id = crypto.randomUUID();
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
-  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual", input.accountTag).run();
+  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,importance_score,dedupe_key,source,account_tag,loan_id,emi_number,principal_component_paise,interest_component_paise) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual", input.accountTag,input.loanId||null,input.emiNumber,input.principalComponentPaise,input.interestComponentPaise).run();
   if (!result.meta?.changes) return json({ error: "This transaction already exists" }, 409);
   await audit(db, user.id, "transaction.created", "transaction", id);
   const row = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
@@ -363,9 +381,10 @@ async function replaceTransaction(db, user, id, payload) {
   if (!existing) return json({ error: "Transaction not found" }, 404);
   const input = transactionInput(payload, existing);
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
+  const loanError=await invalidLoanAllocation(db,user,input);if(loanError)return json({error:loanError},400);
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
   try {
-    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,time_verified=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,account_tag=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), input.accountTag, id, user.id).run();
+    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,time_verified=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,account_tag=?,loan_id=?,emi_number=?,principal_component_paise=?,interest_component_paise=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.timeVerified ? 1 : 0, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), input.accountTag,input.loanId||null,input.emiNumber,input.principalComponentPaise,input.interestComponentPaise,id,user.id).run();
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) return json({ error: "This edit would duplicate another transaction" }, 409);
     throw error;
@@ -434,6 +453,7 @@ async function resetFinancialData(db, user) {
     db.prepare("DELETE FROM review_groups WHERE user_id=?").bind(user.id),
     db.prepare("DELETE FROM daily_reviews WHERE user_id=?").bind(user.id),
     db.prepare("DELETE FROM notification_deliveries WHERE user_id=?").bind(user.id),
+    db.prepare("DELETE FROM loans WHERE user_id=?").bind(user.id),
   ]);
   await audit(db, user.id, "financial_data.reset", "transaction", null, { deleted: rows.results.length });
   return json({ reset: true, deleted: rows.results.length });
@@ -582,6 +602,8 @@ async function handleApi(request, env, url) {
   if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user, url));
   if (request.method === "GET" && url.pathname === "/api/payment-accounts") return json({ accounts: await listPaymentAccounts(env.DB, user.id) });
   if (request.method === "POST" && url.pathname === "/api/payment-accounts") return savePaymentAccount(env.DB, user, await request.json());
+  if (request.method === "GET" && url.pathname === "/api/loans") return json({ loans: await listLoans(env.DB,user.id) });
+  if (request.method === "POST" && url.pathname === "/api/loans") return saveLoan(env.DB,user,await request.json());
   if (request.method === "GET" && url.pathname === "/api/transactions") return listTransactions(env.DB, user, url);
   if (request.method === "DELETE" && url.pathname === "/api/transactions") return resetFinancialData(env.DB, user);
   if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
@@ -591,8 +613,8 @@ async function handleApi(request, env, url) {
   if (request.method === "POST" && url.pathname === "/api/reviews/batch") return batchExplain(env.DB, user, await request.json());
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/export") {
-    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,source,account_tag FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
-    return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results });
+    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,source,account_tag,loan_id,emi_number,principal_component_paise,interest_component_paise FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
+    return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results, loans:await listLoans(env.DB,user.id), paymentAccounts:await listPaymentAccounts(env.DB,user.id) });
   }
   if (request.method === "DELETE" && url.pathname === "/api/account") {
     await env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
@@ -600,7 +622,9 @@ async function handleApi(request, env, url) {
   }
   const transactionMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
   const accountMatch = url.pathname.match(/^\/api\/payment-accounts\/([^/]+)$/);
+  if (request.method === "PUT" && accountMatch) return savePaymentAccount(env.DB,user,{...(await request.json()),id:accountMatch[1]});
   if (request.method === "DELETE" && accountMatch) return deletePaymentAccount(env.DB, user, accountMatch[1]);
+  const loanMatch=url.pathname.match(/^\/api\/loans\/([^/]+)$/); if(request.method==="PUT"&&loanMatch)return saveLoan(env.DB,user,{...(await request.json()),id:loanMatch[1]}); if(request.method==="DELETE"&&loanMatch)return deleteLoan(env.DB,user,loanMatch[1]);
   const categoryMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)\/category$/);
   if (request.method === "PATCH" && categoryMatch) return setTransactionCategory(env.DB, user, categoryMatch[1], await request.json());
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());
