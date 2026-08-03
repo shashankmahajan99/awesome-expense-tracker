@@ -8,7 +8,7 @@ let current = 0;
 let reviewedCount = 0;
 let preferences = null;
 let pendingImport = [];
-let pendingImportSource = "csv";
+let pendingImportFiles = [];
 let activeRecognition = null;
 
 async function api(path, options = {}) {
@@ -35,7 +35,7 @@ function mapTransaction(transaction, index) {
     icon: merchant.slice(0, 2).toUpperCase(), tone: tones[index % tones.length],
     status: "Needs context", detail: transaction.category ? `Likely ${transaction.category}` : "Category uncertain",
     occurredAt: transaction.occurredAt, amountPaise: Number(transaction.amountPaise || 0), category: transaction.category,
-    description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus,
+    description: transaction.description, context: transaction.context, reviewStatus: transaction.reviewStatus, accountTag: transaction.accountTag || "",
   };
 }
 
@@ -177,47 +177,79 @@ function populatePreferences(value) {
   form.elements.quietEnd.value = value.quietEnd; form.elements.weeklyCleanup.checked = value.weeklyCleanup;
 }
 
-function parseCSV(text) {
+function accountTagFor(filename, text = "") {
+  const value = `${filename} ${text}`.toLowerCase();
+  const bank = [["icici", "ICICI"], ["hdfc", "HDFC"], ["axis", "Axis"], ["sbi", "SBI"], ["kotak", "Kotak"], ["yes bank", "YES Bank"]].find(([key]) => value.includes(key))?.[1];
+  if (value.includes("paytm")) return bank ? `Paytm - Savings ${bank}` : "Paytm Wallet";
+  if (value.includes("rupay")) return bank ? `RuPay Card - ${bank}` : "RuPay Card";
+  if (value.includes("credit card") || value.includes("card statement")) return bank ? `Credit Card - ${bank}` : "Credit Card";
+  return bank ? `Savings - ${bank}` : "Bank account";
+}
+
+function importSource(filename, accountTag) {
+  const value = `${filename} ${accountTag}`.toLowerCase(); const pdf = filename.toLowerCase().endsWith(".pdf");
+  return value.includes("paytm") ? (pdf ? "paytm_pdf" : "paytm_csv") : (pdf ? "bank_pdf" : "bank_csv");
+}
+
+function parseCSV(text, file) {
   const rows = []; let row = []; let field = ""; let quoted = false;
+  const sample = text.split(/\r?\n/).slice(0, 5).join("\n");
+  const delimiter = [",", "\t", ";", "|"].sort((a, b) => sample.split(b).length - sample.split(a).length)[0];
   for (let index = 0; index < text.length; index++) {
     const character = text[index];
     if (character === '"' && quoted && text[index + 1] === '"') { field += '"'; index++; }
     else if (character === '"') quoted = !quoted;
-    else if (character === "," && !quoted) { row.push(field.trim()); field = ""; }
+    else if (character === delimiter && !quoted) { row.push(field.trim()); field = ""; }
     else if ((character === "\n" || character === "\r") && !quoted) { if (character === "\r" && text[index + 1] === "\n") index++; row.push(field.trim()); if (row.some(Boolean)) rows.push(row); row = []; field = ""; }
     else field += character;
   }
   row.push(field.trim()); if (row.some(Boolean)) rows.push(row);
-  if (rows.length < 2) return [];
-  const headers = rows.shift().map((header) => header.toLowerCase().replace(/\s+/g, ""));
-  const find = (...names) => headers.findIndex((header) => names.includes(header));
-  const dateIndex = find("date", "transactiondate", "datetime"); const merchantIndex = find("merchant", "description", "narration", "payee");
-  const amountIndex = find("amount", "debit", "withdrawal"); const categoryIndex = find("category", "type");
-  if (merchantIndex < 0 || amountIndex < 0) return [];
-  return rows.map((values) => ({ date: values[dateIndex] || new Date().toISOString(), merchant: values[merchantIndex], amount: Number(String(values[amountIndex]).replace(/[^0-9.-]/g, "")), category: categoryIndex >= 0 ? values[categoryIndex] : "Uncategorised" })).filter((item) => item.merchant && item.amount > 0);
+  if (rows.length < 2) return { rows: [], accountTag: accountTagFor(file.name, text.slice(0, 2000)), detail: "No tabular rows found" };
+  const headers = rows.shift().map((header) => header.toLowerCase().replace(/[^a-z]/g, ""));
+  const find = (...names) => headers.findIndex((header) => names.some((name) => header === name || header.includes(name)));
+  const dateIndex = find("date", "transactiondate", "valuedate", "datetime"); const merchantIndex = find("merchant", "description", "narration", "payee", "details");
+  const debitIndex = find("debit", "withdrawal", "debitamount", "withdrawalamount"); const creditIndex = find("credit", "deposit", "creditamount");
+  const amountIndex = find("amount", "transactionamount"); const typeIndex = find("type", "drcr", "transactiontype"); const categoryIndex = find("category");
+  const referenceIndex = find("reference", "transactionid", "utr", "refno", "orderid");
+  const accountTag = accountTagFor(file.name, `${headers.join(" ")} ${text.slice(0, 2000)}`); const source = importSource(file.name, accountTag);
+  if (merchantIndex < 0 || (debitIndex < 0 && amountIndex < 0)) return { rows: [], accountTag, detail: "Date, narration, or debit columns were not recognized" };
+  const parsed = rows.map((values) => {
+    const value = (index) => index >= 0 ? String(values[index] || "").trim() : "";
+    const debit = Number(value(debitIndex).replace(/[^0-9.-]/g, "")); const amount = debit > 0 ? debit : Number(value(amountIndex).replace(/[^0-9.-]/g, ""));
+    const type = value(typeIndex).toLowerCase(); const hasCreditOnly = !(debit > 0) && creditIndex >= 0 && Number(value(creditIndex).replace(/[^0-9.-]/g, "")) > 0;
+    return { occurredAt: statementDate(value(dateIndex)) || new Date().toISOString(), merchant: value(merchantIndex), description: value(merchantIndex), amount, category: categoryIndex >= 0 ? value(categoryIndex) || "Uncategorised" : "Uncategorised", accountTag, sourceFile: file.name, source, reference: value(referenceIndex), credit: hasCreditOnly || /\b(cr|credit)\b/.test(type) };
+  }).filter((item) => item.merchant && item.amount > 0 && !item.credit);
+  return { rows: parsed, accountTag, detail: `${parsed.length} debit rows · ${headers.length} columns detected` };
 }
 
 function statementDate(value) {
+  const iso = value.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/); if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), 12).toISOString();
+  const named = value.match(/\b(\d{1,2})[- ](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ](\d{2,4})\b/i);
+  if (named) { const date = new Date(`${named[1]} ${named[2]} ${named[3].length === 2 ? `20${named[3]}` : named[3]} 12:00:00`); return Number.isNaN(date.getTime()) ? null : date.toISOString(); }
   const match = value.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})\b/); if (!match) return null;
   const year = Number(match[3].length === 2 ? `20${match[3]}` : match[3]); const date = new Date(year, Number(match[2]) - 1, Number(match[1]), 12);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function parseStatementText(lines) {
+function parseStatementText(lines, file) {
   const ignored = /opening balance|closing balance|available balance|total debit|total credit|statement summary|page \d|date narration|account number|customer id/i;
-  const candidates = [];
+  const candidates = []; const accountTag = accountTagFor(file.name, lines.slice(0, 80).join(" ")); const source = importSource(file.name, accountTag);
   for (const raw of lines) {
     const line = raw.replace(/\s+/g, " ").trim(); const date = statementDate(line); if (!date || ignored.test(line)) continue;
+    if (/\b(?:CR|credit|deposit)\b/i.test(line) && !/\b(?:DR|debit|withdrawal|paid|sent)\b/i.test(line)) continue;
     const amountMatches = [...line.matchAll(/(?:₹|INR|Rs\.?)?\s*([0-9][0-9,]*\.\d{2})(?=\s|$|Cr|Dr)/gi)]; if (!amountMatches.length) continue;
-    const match = amountMatches[amountMatches.length - 1]; const amount = Number(match[1].replaceAll(",", "")); if (!amount || amount > 100000000) continue;
-    let merchant = line.replace(/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/, "").replace(match[0], "").replace(/\b(?:DR|CR|debit|credit)\b/gi, "").replace(/\s+/g, " ").trim();
+    const match = amountMatches[0]; const amount = Number(match[1].replaceAll(",", "")); if (!amount || amount > 100000000) continue;
+    let merchant = line.replace(/\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{1,2}[- ](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ]\d{2,4})\b/i, "");
+    for (const amountMatch of [...amountMatches].reverse()) merchant = merchant.replace(amountMatch[0], " ");
+    merchant = merchant.replace(/\b(?:DR|CR|debit|credit|withdrawal)\b/gi, "").replace(/\b(?:UPI|IMPS|NEFT|POS|ECOM|VPS|IPS|ATM|REF|TXN)\b[:/ -]*/gi, " ").replace(/\s+/g, " ").trim();
     merchant = merchant.replace(/^[|:\-\s]+|[|:\-\s]+$/g, "").slice(0, 160); if (!merchant || /^\d+$/.test(merchant)) continue;
-    candidates.push({ date, merchant, description: line.slice(0, 300), amount, category: "Uncategorised" });
+    const reference = line.match(/(?:UTR|UPI ref|reference|ref no|transaction id|order id)[:\s-]*([A-Z0-9-]{6,40})/i)?.[1] || "";
+    candidates.push({ occurredAt: date, merchant, description: `${line.slice(0, 240)}${reference ? ` · Reference: ${reference}` : ""}`, amount, category: "Uncategorised", accountTag, sourceFile: file.name, source, reference });
   }
-  return candidates;
+  return { rows: candidates, accountTag, detail: `${candidates.length} debit rows · ${lines.length} text rows examined` };
 }
 
-async function parsePDF(file, password = "") {
+async function parsePDF(file, onProgress, password = "") {
   const pdfjs = await import("/vendor/pdf.mjs"); pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdf.worker.mjs";
   const bytes = new Uint8Array(await file.arrayBuffer());
   let task = pdfjs.getDocument({ data: bytes, password });
@@ -231,12 +263,26 @@ async function parsePDF(file, password = "") {
   }
   const lines = [];
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+    onProgress?.(pageNumber - 1, document.numPages, `${lines.length} text rows detected`);
     const page = await document.getPage(pageNumber); const content = await page.getTextContent();
     const byLine = new Map();
     for (const item of content.items) { const y = Math.round(item.transform?.[5] || 0); if (!byLine.has(y)) byLine.set(y, []); byLine.get(y).push(item); }
     [...byLine.entries()].sort((a, b) => b[0] - a[0]).forEach(([, itemsOnLine]) => lines.push(itemsOnLine.sort((a, b) => (a.transform?.[4] || 0) - (b.transform?.[4] || 0)).map((item) => item.str).join(" ")));
+    onProgress?.(pageNumber, document.numPages, `${lines.length} text rows detected`);
   }
-  return parseStatementText(lines);
+  return parseStatementText(lines, file);
+}
+
+function renderImportFiles() {
+  const root = $("#import-files"); root.replaceChildren(); root.hidden = !pendingImportFiles.length;
+  pendingImportFiles.forEach((entry) => {
+    const card = document.createElement("div"); card.className = `import-file ${entry.status}`;
+    const icon = document.createElement("i"); icon.textContent = entry.status === "ready" ? "✓" : entry.status === "failed" ? "!" : "…";
+    const copy = document.createElement("span"); const name = document.createElement("strong"); name.textContent = entry.name; const detail = document.createElement("small"); detail.textContent = entry.detail; copy.append(name, detail);
+    const tag = document.createElement("input"); tag.value = entry.accountTag || ""; tag.placeholder = "Account tag"; tag.disabled = entry.status !== "ready"; tag.setAttribute("aria-label", `Account tag for ${entry.name}`);
+    tag.addEventListener("input", () => { entry.accountTag = tag.value; entry.rows.forEach((row) => { row.accountTag = tag.value; }); });
+    card.append(icon, copy, tag); root.append(card);
+  });
 }
 
 async function loadDashboard() {
@@ -309,21 +355,33 @@ $("#delete-account")?.addEventListener("click", async () => {
 $$('[data-open-import]').forEach((button) => button.addEventListener("click", () => dialogs.import.showModal()));
 $$('[data-close-import]').forEach((button) => button.addEventListener("click", () => dialogs.import.close()));
 $("#statement-file")?.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0]; if (!file) return;
-  if (file.size > 20_000_000) return showToast("File is too large", "Use a PDF or CSV under 20 MB");
+  const selected = [...(event.target.files || [])]; if (!selected.length) return;
+  const oversized = selected.find((file) => file.size > 20_000_000); if (oversized) return showToast(`${oversized.name} is too large`, "Use files under 20 MB each");
+  pendingImport = []; pendingImportFiles = selected.map((file) => ({ name: file.name, status: "waiting", detail: "Waiting to parse", accountTag: "", rows: [] })); renderImportFiles();
   $("#import-loading").hidden = false; $("#import-preview").hidden = true; $("#import-submit").disabled = true;
-  try {
-    const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"); pendingImportSource = isPDF ? "bank_pdf" : "csv";
-    pendingImport = isPDF ? await parsePDF(file) : parseCSV(await file.text());
-    $("#import-preview").hidden = false; $("#import-count").textContent = pendingImport.length ? `${pendingImport.length} transactions ready` : "No transaction rows detected";
-    $("#import-filename").textContent = pendingImport.length ? `${file.name} · review them after import` : `${file.name} · try a selectable-text PDF or CSV`;
-    $("#import-submit").disabled = !pendingImport.length;
-  } catch (error) { pendingImport = []; showToast("Couldn’t read statement", error.message || "Try downloading the statement again"); }
-  finally { $("#import-loading").hidden = true; }
+  for (let index = 0; index < selected.length; index++) {
+    const file = selected[index]; const entry = pendingImportFiles[index]; entry.status = "parsing"; entry.detail = "Opening file…"; renderImportFiles();
+    try {
+      const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"); let result;
+      if (isPDF) result = await parsePDF(file, (page, pages, metadata) => {
+        const fileProgress = pages ? page / pages : 0; const overall = (index + fileProgress) / selected.length;
+        $("#import-progress-title").textContent = `Parsing ${file.name}`; $("#import-progress-detail").textContent = `Page ${Math.min(page + 1, pages)} of ${pages} · ${metadata}`; $("#import-progress-bar").style.width = `${overall * 100}%`;
+        entry.detail = `Page ${Math.min(page + 1, pages)} of ${pages} · ${metadata}`; renderImportFiles();
+      });
+      else { $("#import-progress-title").textContent = `Parsing ${file.name}`; $("#import-progress-detail").textContent = "Detecting columns, account, debit rows, and references"; result = parseCSV(await file.text(), file); }
+      entry.rows = result.rows; entry.accountTag = result.accountTag; entry.detail = result.detail; entry.status = result.rows.length ? "ready" : "failed"; pendingImport.push(...result.rows); renderImportFiles();
+    } catch (error) { entry.status = "failed"; entry.detail = error.message || "Could not read this file"; renderImportFiles(); }
+    $("#import-progress-bar").style.width = `${((index + 1) / selected.length) * 100}%`;
+  }
+  $("#import-loading").hidden = true; $("#import-preview").hidden = false;
+  const readyFiles = pendingImportFiles.filter((file) => file.status === "ready").length;
+  $("#import-count").textContent = pendingImport.length ? `${pendingImport.length} transactions ready` : "No debit transactions detected";
+  $("#import-filename").textContent = `${readyFiles} of ${selected.length} files parsed · account tags remain editable`;
+  $("#import-submit").disabled = !pendingImport.length;
 });
-$("#clear-import")?.addEventListener("click", () => { pendingImport = []; $("#statement-file").value = ""; $("#import-preview").hidden = true; $("#import-submit").disabled = true; });
+$("#clear-import")?.addEventListener("click", () => { pendingImport = []; pendingImportFiles = []; $("#statement-file").value = ""; $("#import-preview").hidden = true; $("#import-files").hidden = true; $("#import-submit").disabled = true; });
 $("#import-submit")?.addEventListener("click", async () => {
-  try { const result = await api("/api/transactions/import", { method: "POST", body: JSON.stringify({ transactions: pendingImport, source: pendingImportSource }) }); dialogs.import.close(); showToast(`${result.imported} transactions imported`, `${result.duplicates} duplicates safely skipped · manage them in Transactions`); await loadDashboard(); }
+  try { const result = await api("/api/transactions/import", { method: "POST", body: JSON.stringify({ transactions: pendingImport }) }); dialogs.import.close(); showToast(`${result.imported} transactions imported`, `${result.verified || 0} verified across statements · ${result.duplicates || 0} repeats skipped`); await loadDashboard(); }
   catch (error) { showToast("Import failed", error.message); }
 });
 

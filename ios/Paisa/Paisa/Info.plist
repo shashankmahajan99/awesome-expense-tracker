@@ -35,6 +35,8 @@
 	<string>1</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Paisa uses the microphone only while you choose to speak.</string>
+	<key>PaisaRemotePushEnabled</key>
+	<false/>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Paisa transcribes your review explanation on device.</string>
 	<key>UILaunchScreen</key>

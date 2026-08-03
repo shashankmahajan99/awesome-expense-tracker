@@ -14,6 +14,7 @@ private struct SyncTransaction: Codable {
     let context: String
     let reviewStatus: String
     let source: String
+    let accountTag: String?
     let updatedAt: String
     let isDeleted: Bool
 }
@@ -28,7 +29,10 @@ private struct SyncResponse: Decodable {
     let transactions: [SyncTransaction]
     let tombstones: [SyncTombstone]
     let aliases: [String: String]
+    let preferences: MobileSyncPreferences?
 }
+
+private struct MobileSyncPreferences: Decodable { let reviewTime: String }
 
 private struct APIError: Decodable { let error: String }
 
@@ -38,6 +42,8 @@ final class SyncManager: ObservableObject {
     @Published private(set) var isWorking = false
     @Published private(set) var status = "Stored only on this iPhone"
     @Published private(set) var lastSynced: Date?
+    @Published private(set) var reviewHour = 21
+    @Published private(set) var reviewMinute = 30
 
     private let tokenService = "com.shashankmahajan.paisa.sync"
     private let tokenAccount = "mobile-access-token"
@@ -145,9 +151,32 @@ final class SyncManager: ObservableObject {
         }
     }
 
+    func registerPushToken(_ token: String) async {
+        guard connected, token.range(of: #"^[0-9a-f]{64,200}$"#, options: [.regularExpression, .caseInsensitive]) != nil else { return }
+        #if DEBUG
+        let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
+        do {
+            let _: [String: Bool] = try await request("/api/mobile/push-token", method: "POST", body: ["token": token.lowercased(), "environment": environment], authenticated: true)
+        } catch {
+            status = "Sync works, but notifications could not register: \(error.localizedDescription)"
+        }
+    }
+
+    func unregisterPushToken(_ token: String?) async {
+        guard connected else { return }
+        do {
+            let body = token.map { ["token": $0.lowercased()] }
+            let _: [String: Bool] = try await request("/api/mobile/push-token", method: "DELETE", body: body, authenticated: true)
+        } catch { }
+    }
+
     func disconnect() async {
         guard connected else { return }
         isWorking = true; defer { isWorking = false }
+        await unregisterPushToken(NotificationManager.shared.deviceToken)
         do { let _: [String: Bool] = try await request("/api/mobile/session", method: "DELETE", body: Optional<String>.none, authenticated: true) } catch { }
         Self.deleteKeychain(service: tokenService, account: tokenAccount)
         Self.deleteKeychain(service: tokenService, account: sitesTokenAccount)
@@ -157,7 +186,7 @@ final class SyncManager: ObservableObject {
     private func sync(context: ModelContext) async throws {
         let local = try context.fetch(FetchDescriptor<PaisaTransaction>())
         let payload = local.map { item in
-            SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
+            SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
         }
         let response: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: ["transactions": payload], authenticated: true)
         var byID = Dictionary(uniqueKeysWithValues: local.map { ($0.id.uuidString.lowercased(), $0) })
@@ -170,9 +199,9 @@ final class SyncManager: ObservableObject {
             if let item = byID[remote.id.lowercased()] {
                 guard updatedAt >= item.updatedAt else { continue }
                 item.merchant = remote.merchant; item.amount = remote.amount; item.occurredAt = occurredAt; item.category = remote.category
-                item.note = remote.context; item.reviewStatus = remote.reviewStatus; item.source = remote.source; item.updatedAt = updatedAt; item.isDeleted = false
+                item.note = remote.context; item.reviewStatus = remote.reviewStatus; item.source = remote.source; item.accountTag = remote.accountTag ?? ""; item.updatedAt = updatedAt; item.isDeleted = false
             } else {
-                context.insert(PaisaTransaction(id: id, merchant: remote.merchant, amount: remote.amount, occurredAt: occurredAt, category: remote.category, note: remote.context, reviewStatus: remote.reviewStatus, source: remote.source, updatedAt: updatedAt))
+                context.insert(PaisaTransaction(id: id, merchant: remote.merchant, amount: remote.amount, occurredAt: occurredAt, category: remote.category, note: remote.context, reviewStatus: remote.reviewStatus, source: remote.source, accountTag: remote.accountTag ?? "", updatedAt: updatedAt))
             }
         }
         for tombstone in response.tombstones {
@@ -180,6 +209,10 @@ final class SyncManager: ObservableObject {
             item.isDeleted = true; item.updatedAt = deletedAt
         }
         try context.save()
+        if let components = response.preferences?.reviewTime.split(separator: ":"), components.count == 2,
+           let hour = Int(components[0]), let minute = Int(components[1]), (0...23).contains(hour), (0...59).contains(minute) {
+            reviewHour = hour; reviewMinute = minute
+        }
         lastSynced = Date()
         let visibleCount = response.transactions.count
         status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions") just now"

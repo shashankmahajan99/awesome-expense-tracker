@@ -44,6 +44,7 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showReview) { NavigationStack { ReviewView(transactions: unresolved) } }
         .sheet(isPresented: $showImport) { StatementImportView() }
+        .onReceive(NotificationCenter.default.publisher(for: .paisaOpenReview)) { _ in if !unresolved.isEmpty { showReview = true } }
     }
 
     private var header: some View {
@@ -146,7 +147,7 @@ struct TransactionRow: View {
                 .frame(width: 42, height: 42).background(PaisaTheme.forest.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.merchant).font(.body.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
-                Text("\(item.category) · \(item.occurredAt.formatted(.dateTime.day().month()))").font(.caption).foregroundStyle(PaisaTheme.muted)
+                Text([item.category, item.accountTag, item.occurredAt.formatted(.dateTime.day().month())].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Spacer()
             Text(PaisaFormat.amount(item.amount)).fontWeight(.bold).foregroundStyle(PaisaTheme.ink)

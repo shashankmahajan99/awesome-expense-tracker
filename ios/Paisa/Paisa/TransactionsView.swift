@@ -8,7 +8,7 @@ struct TransactionsView: View {
     @State private var search = ""
     @State private var editing: PaisaTransaction?
     @State private var addNew = false
-    private var filtered: [PaisaTransaction] { search.isEmpty ? transactions : transactions.filter { "\($0.merchant) \($0.category) \($0.note)".localizedCaseInsensitiveContains(search) } }
+    private var filtered: [PaisaTransaction] { search.isEmpty ? transactions : transactions.filter { "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search) } }
     var body: some View {
         List {
             ForEach(filtered) { item in
@@ -36,19 +36,19 @@ struct TransactionEditor: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
     let item: PaisaTransaction?
-    @State private var merchant = ""; @State private var amount = 0.0; @State private var date = Date(); @State private var category = "Uncategorised"; @State private var note = ""; @State private var status = "unresolved"
+    @State private var merchant = ""; @State private var amount = 0.0; @State private var date = Date(); @State private var category = "Uncategorised"; @State private var accountTag = ""; @State private var note = ""; @State private var status = "unresolved"
     var body: some View {
         NavigationStack {
             Form {
                 Section("Payment") { TextField("Merchant", text: $merchant); TextField("Amount", value: $amount, format: .number).keyboardType(.decimalPad); DatePicker("Date", selection: $date) }
-                Section("Understanding") { TextField("Category", text: $category); Picker("Status", selection: $status) { Text("Needs review").tag("unresolved"); Text("Explained").tag("explained"); Text("Known / repeat").tag("known"); Text("Deferred").tag("deferred") }; TextField("Context or note", text: $note, axis: .vertical) }
+                Section("Understanding") { TextField("Category", text: $category); TextField("Account tag", text: $accountTag, prompt: Text("Savings - ICICI")); Picker("Status", selection: $status) { Text("Needs review").tag("unresolved"); Text("Explained").tag("explained"); Text("Known / repeat").tag("known"); Text("Deferred").tag("deferred") }; TextField("Context or note", text: $note, axis: .vertical) }
             }
             .scrollContentBackground(.hidden).background(PaisaTheme.canvas)
             .navigationTitle(item == nil ? "Add transaction" : "Edit transaction")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(merchant.isEmpty || amount <= 0) } }
-        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; category = item.category; note = item.note; status = item.reviewStatus } }
+        }.onAppear { if let item { merchant = item.merchant; amount = item.amount; date = item.occurredAt; category = item.category; accountTag = item.accountTag; note = item.note; status = item.reviewStatus } }
     }
-    private func save() { if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.category = category; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, category: category, note: note, reviewStatus: status)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
+    private func save() { if let item { item.merchant = merchant; item.amount = amount; item.occurredAt = date; item.category = category; item.accountTag = accountTag; item.note = note; item.reviewStatus = status; item.updatedAt = .now } else { context.insert(PaisaTransaction(merchant: merchant, amount: amount, occurredAt: date, category: category, note: note, reviewStatus: status, accountTag: accountTag)) }; try? context.save(); Task { await sync.syncIfConnected(context: context) }; dismiss() }
 }
 
 struct InsightsView: View {
@@ -84,6 +84,7 @@ struct InsightsView: View {
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
+    @EnvironmentObject private var notifications: NotificationManager
     private let webURL = URL(string: "https://paisa-daily-inbox.shashankmahajan.chatgpt.site")!
 
     var body: some View {
@@ -99,8 +100,23 @@ struct SettingsView: View {
                 if sync.isWorking { ProgressView() }
             }
             Section("Daily review") {
-                DatePicker("Reminder time", selection: .constant(.now), displayedComponents: .hourAndMinute)
-                Toggle("Sunday cleanup", isOn: .constant(true))
+                Label(notifications.statusText, systemImage: notifications.isEnabledForPaisa ? "bell.badge.fill" : "bell.slash")
+                if notifications.authorizationStatus == .denied {
+                    Button("Open notification settings") { notifications.openSystemSettings() }
+                } else if notifications.isEnabledForPaisa {
+                    Button("Stop notifications on this iPhone", role: .destructive) {
+                        Task { await sync.unregisterPushToken(notifications.deviceToken); notifications.stopForPaisa() }
+                    }
+                } else {
+                    Button("Enable daily inbox notifications") {
+                        Task {
+                            await notifications.requestAuthorization()
+                            if let token = notifications.deviceToken { await sync.registerPushToken(token) }
+                        }
+                    }
+                }
+                Text("Paisa sends at most one reminder when meaningful payments still need context. Your preferred time and quiet hours come from the web dashboard.")
+                    .font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Section("Privacy") {
                 Label("Statements are parsed on device", systemImage: "lock.shield")

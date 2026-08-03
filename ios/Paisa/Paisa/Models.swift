@@ -12,12 +12,13 @@ final class PaisaTransaction {
     var note: String
     var reviewStatus: String
     var source: String
+    var accountTag: String = ""
     var updatedAt: Date = Date.now
     var isDeleted: Bool = false
 
-    init(id: UUID = UUID(), merchant: String, amount: Double, occurredAt: Date = .now, category: String = "Uncategorised", note: String = "", reviewStatus: String = "unresolved", source: String = "manual", updatedAt: Date = .now, isDeleted: Bool = false) {
+    init(id: UUID = UUID(), merchant: String, amount: Double, occurredAt: Date = .now, category: String = "Uncategorised", note: String = "", reviewStatus: String = "unresolved", source: String = "manual", accountTag: String = "", updatedAt: Date = .now, isDeleted: Bool = false) {
         self.id = id; self.merchant = merchant; self.amount = amount; self.occurredAt = occurredAt
-        self.category = category; self.note = note; self.reviewStatus = reviewStatus; self.source = source; self.updatedAt = updatedAt; self.isDeleted = isDeleted
+        self.category = category; self.note = note; self.reviewStatus = reviewStatus; self.source = source; self.accountTag = accountTag; self.updatedAt = updatedAt; self.isDeleted = isDeleted
     }
 }
 

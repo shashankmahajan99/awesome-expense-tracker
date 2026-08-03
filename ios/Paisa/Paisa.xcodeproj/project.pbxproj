@@ -11,6 +11,7 @@
 		0A0000010000000000000002 /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000001 /* SharedInbox.swift */; };
 		0A0000010000000000000003 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000003 /* ShareViewController.swift */; };
 		0A0000010000000000000004 /* PaisaShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000005 /* PaisaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0A0000010000000000000005 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000007 /* NotificationService.swift */; };
 		1A75DFA27A0D97EA8004DA25 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9681764243E7CC608F8FF25 /* Models.swift */; };
 		2728D655504C72F5C8A76275 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FD3A663EBA89540EABEA1A /* DashboardView.swift */; };
 		5CCD24012DC587F1C85A1AA7 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */; };
@@ -51,6 +52,7 @@
 		0A0000100000000000000004 /* PaisaShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PaisaShare.entitlements; sourceTree = "<group>"; };
 		0A0000100000000000000005 /* PaisaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PaisaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A0000100000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0A0000100000000000000007 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		442737AF976C78C2494E6621 /* PaisaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaisaApp.swift; sourceTree = "<group>"; };
 		505C5411F09EF4DD6AACFFEE /* Paisa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Paisa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		66FD3A663EBA89540EABEA1A /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 				66FD3A663EBA89540EABEA1A /* DashboardView.swift */,
 				8703600E03D7E98ECE224E16 /* Info.plist */,
 				D9681764243E7CC608F8FF25 /* Models.swift */,
+				0A0000100000000000000007 /* NotificationService.swift */,
 				0A0000100000000000000002 /* Paisa.entitlements */,
 				442737AF976C78C2494E6621 /* PaisaApp.swift */,
 				ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */,
@@ -200,6 +203,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0A0000010000000000000001 /* SharedInbox.swift in Sources */,
+				0A0000010000000000000005 /* NotificationService.swift in Sources */,
 				2728D655504C72F5C8A76275 /* DashboardView.swift in Sources */,
 				1A75DFA27A0D97EA8004DA25 /* Models.swift in Sources */,
 				7E034746E975AA523609E92F /* PaisaApp.swift in Sources */,

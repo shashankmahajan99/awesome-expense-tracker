@@ -23,7 +23,7 @@ function statusLabel(status) {
 function filtered() {
   const query = $("#transaction-search").value.trim().toLowerCase();
   const status = $("#status-filter").value; const category = $("#category-filter").value;
-  return transactions.filter((item) => (!query || `${item.merchant} ${item.description || ""} ${item.context || ""}`.toLowerCase().includes(query)) && (status === "all" || item.reviewStatus === status) && (category === "all" || item.category === category));
+  return transactions.filter((item) => (!query || `${item.merchant} ${item.description || ""} ${item.context || ""} ${item.accountTag || ""}`.toLowerCase().includes(query)) && (status === "all" || item.reviewStatus === status) && (category === "all" || item.category === category));
 }
 
 function render() {
@@ -34,7 +34,7 @@ function render() {
     const merchant = document.createElement("span"); merchant.className = "ledger-merchant";
     const icon = document.createElement("i"); icon.textContent = item.merchant.slice(0, 2).toUpperCase();
     const copy = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = item.merchant;
-    const date = document.createElement("small"); date.textContent = new Date(item.occurredAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+    const date = document.createElement("small"); const occurred = new Date(item.occurredAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }); date.textContent = item.accountTag ? `${occurred} · ${item.accountTag}` : occurred;
     copy.append(strong, date); merchant.append(icon, copy);
     const category = document.createElement("span"); category.textContent = item.category || "Uncategorised";
     const status = document.createElement("span"); const pill = document.createElement("i"); pill.className = `status-tag ${item.reviewStatus}`; pill.textContent = statusLabel(item.reviewStatus); status.append(pill);
@@ -60,6 +60,7 @@ function openEditor(item = null) {
   if (item) {
     form.elements.merchant.value = item.merchant; form.elements.amount.value = item.amount;
     form.elements.occurredAt.value = toLocalDate(item.occurredAt); form.elements.category.value = item.category || "";
+    form.elements.accountTag.value = item.accountTag || "";
     form.elements.reviewStatus.value = item.reviewStatus; form.elements.description.value = item.description || ""; form.elements.context.value = item.context || "";
   } else form.elements.occurredAt.value = toLocalDate(new Date());
   dialog.showModal(); setTimeout(() => form.elements.merchant.focus(), 0);

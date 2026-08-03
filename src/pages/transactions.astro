@@ -40,6 +40,7 @@ import AppTopbar from "../components/AppTopbar.astro";
           <label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" /></label>
           <label><span>Date and time</span><input name="occurredAt" required type="datetime-local" /></label>
           <label><span>Category</span><input name="category" list="categories" placeholder="Uncategorised" /></label>
+          <label><span>Account tag</span><input name="accountTag" maxlength="100" placeholder="Savings - ICICI" /></label>
           <label><span>Review status</span><select name="reviewStatus"><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select></label>
           <label class="wide"><span>Description</span><input name="description" maxlength="300" placeholder="Optional bank narration" /></label>
           <label class="wide"><span>Context or note</span><textarea name="context" rows="3" maxlength="1000" placeholder="What was this payment for?"></textarea></label>

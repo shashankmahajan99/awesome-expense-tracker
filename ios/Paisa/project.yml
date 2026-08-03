@@ -11,13 +11,16 @@ targets:
   Paisa:
     type: application
     platform: iOS
-    sources: [Paisa]
+    sources:
+      - Paisa
+      - Shared
     info:
       path: Paisa/Info.plist
       properties:
         CFBundleDisplayName: Paisa
         NSSpeechRecognitionUsageDescription: Paisa transcribes your review explanation on device.
         NSMicrophoneUsageDescription: Paisa uses the microphone only while you choose to speak.
+        PaisaRemotePushEnabled: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -35,7 +38,25 @@ targets:
               - paisa
     settings:
       base:
+        CODE_SIGN_ENTITLEMENTS: Paisa/Paisa.entitlements
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: com.shashankmahajan.paisa
+    dependencies:
+      - target: PaisaShare
     scheme:
       testTargets: []
+  PaisaShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - PaisaShare
+      - Shared
+    info:
+      path: PaisaShare/Info.plist
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: PaisaShare/PaisaShare.entitlements
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.shashankmahajan.paisa.share
+        SKIP_INSTALL: YES

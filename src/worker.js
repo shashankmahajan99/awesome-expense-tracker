@@ -4,13 +4,15 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, display_name TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS reminder_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, personality TEXT NOT NULL DEFAULT 'Balanced', preferred_time TEXT NOT NULL DEFAULT '21:30', quiet_start TEXT NOT NULL DEFAULT '23:00', quiet_end TEXT NOT NULL DEFAULT '07:00', important_amount_paise INTEGER NOT NULL DEFAULT 100000, minimum_total_paise INTEGER NOT NULL DEFAULT 30000, weekly_cleanup INTEGER NOT NULL DEFAULT 1, timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS review_groups (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, context TEXT, category TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
+  `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
   `CREATE INDEX IF NOT EXISTS idx_transactions_review_queue ON transactions(user_id, review_status, occurred_at, importance_score DESC)`,
   `CREATE TABLE IF NOT EXISTS daily_reviews (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', unresolved_count INTEGER NOT NULL DEFAULT 0, unresolved_amount_paise INTEGER NOT NULL DEFAULT 0, notified_at TEXT, started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS notification_deliveries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, status TEXT NOT NULL, provider_message_id TEXT, attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, metadata TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS mobile_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, device_name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_mobile_sessions_user ON mobile_sessions(user_id,revoked_at)`,
+  `CREATE TABLE IF NOT EXISTS push_devices (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, session_id TEXT NOT NULL REFERENCES mobile_sessions(id) ON DELETE CASCADE, environment TEXT NOT NULL DEFAULT 'production', app_bundle TEXT NOT NULL DEFAULT 'com.shashankmahajan.paisa', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id,session_id)`,
   `CREATE TABLE IF NOT EXISTS transaction_tombstones (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL, deleted_at TEXT NOT NULL, PRIMARY KEY(user_id,transaction_id))`,
 ];
 
@@ -96,9 +98,46 @@ function mapTransaction(row) {
     context: row.context,
     importanceScore: Number(row.importance_score),
     source: row.source,
+    accountTag: row.account_tag || "",
     updatedAt: timestamp(new Date(String(row.updated_at).replace(" ", "T") + (String(row.updated_at).includes("Z") ? "" : "Z"))),
     isDeleted: false,
   };
+}
+
+function sourceSet(value = "") { return new Set(String(value).split(",").map((item) => item.trim()).filter(Boolean)); }
+function joinedSources(left, right) { return [...new Set([...sourceSet(left), ...sourceSet(right)])].sort().join(","); }
+function merchantTokens(value = "") { return new Set(normalizeMerchant(value).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2 && !["upi", "paytm", "payment", "transaction", "debit"].includes(token))); }
+function merchantSimilarity(left, right) {
+  const a = merchantTokens(left); const b = merchantTokens(right); if (!a.size || !b.size) return 0;
+  const intersection = [...a].filter((token) => b.has(token)).length; return intersection / new Set([...a, ...b]).size;
+}
+function referenceFrom(value = "") { return String(value).match(/(?:Reference|UTR|UPI ref|transaction id)[:\s-]*([A-Z0-9-]{6,40})/i)?.[1]?.toLowerCase() || ""; }
+function combinedAccountTag(left = "", right = "") {
+  if (!left) return right; if (!right || left === right) return left;
+  const value = `${left} ${right}`; const bank = ["ICICI", "HDFC", "Axis", "SBI", "Kotak", "YES Bank"].find((name) => value.toLowerCase().includes(name.toLowerCase()));
+  if (/paytm/i.test(value) && bank) return `Paytm - Savings ${bank}`;
+  return [...new Set([left, right])].sort().join(" + ");
+}
+
+async function verifiedDuplicate(db, userId, input, source) {
+  const date = new Date(input.occurredAt); const start = new Date(date.getTime() - 86400000).toISOString(); const end = new Date(date.getTime() + 86400000).toISOString();
+  const rows = await db.prepare("SELECT * FROM transactions WHERE user_id=? AND amount_paise=? AND occurred_at BETWEEN ? AND ?").bind(userId, input.amountPaise, start, end).all();
+  const incomingReference = referenceFrom(`${input.description} ${input.context}`);
+  return rows.results.find((row) => {
+    const existingReference = referenceFrom(`${row.description || ""} ${row.context || ""}`);
+    if (incomingReference && existingReference) return incomingReference === existingReference;
+    const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(row.source)].some((value) => incomingSources.has(value));
+    return crossSource && merchantSimilarity(row.merchant, input.merchant) >= .66;
+  });
+}
+
+async function mergeVerifiedDuplicate(db, userId, row, input, source) {
+  const accountTag = combinedAccountTag(row.account_tag || "", input.accountTag || "");
+  const verification = accountTag ? `Verified in ${accountTag}` : "Verified across statements";
+  const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(row.source)].some((value) => incomingSources.has(value));
+  const context = !crossSource || String(row.context || "").includes(verification) ? String(row.context || "") : [row.context, verification].filter(Boolean).join(" · ");
+  await db.prepare("UPDATE transactions SET source=?,account_tag=?,context=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(joinedSources(row.source, source), accountTag, context.slice(0, 1000), row.id, userId).run();
+  return row.id;
 }
 
 async function authorizeMobile(env, user, url) {
@@ -140,18 +179,22 @@ async function syncMobile(db, user, payload) {
     const input = transactionInput(item, existing || {}); if (!input) continue;
     const model = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 }; const key = dedupeKey(model);
     if (existing) {
-      if (laterThan(updatedAt, existing.updated_at)) await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,source=?,updated_at=? WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 30), updatedAt, id, user.id).run();
+      if (laterThan(updatedAt, existing.updated_at)) await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,source=?,account_tag=?,updated_at=? WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 120), input.accountTag, updatedAt, id, user.id).run();
     } else {
-      const duplicate = await db.prepare("SELECT id FROM transactions WHERE user_id=? AND dedupe_key=?").bind(user.id, key).first();
-      if (duplicate) { aliases[id] = duplicate.id; continue; }
-      await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, String(item.source || "ios").slice(0, 30), updatedAt, updatedAt).run();
+      const source = String(item.source || "ios").slice(0, 120);
+      const duplicate = await db.prepare("SELECT * FROM transactions WHERE user_id=? AND dedupe_key=?").bind(user.id, key).first();
+      if (duplicate) { aliases[id] = await mergeVerifiedDuplicate(db, user.id, duplicate, input, source); continue; }
+      const verified = await verifiedDuplicate(db, user.id, input, source);
+      if (verified) { aliases[id] = await mergeVerifiedDuplicate(db, user.id, verified, input, source); continue; }
+      await db.prepare("INSERT INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,account_tag,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(model), key, source, input.accountTag, updatedAt, updatedAt).run();
     }
   }
   const [transactions, tombstones] = await Promise.all([
     db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 2000").bind(user.id).all(),
     db.prepare("SELECT transaction_id,deleted_at FROM transaction_tombstones WHERE user_id=?").bind(user.id).all(),
   ]);
-  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases });
+  const preferences = await getPreferences(db, user.id);
+  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases, preferences });
 }
 
 async function getPreferences(db, userId) {
@@ -188,18 +231,22 @@ async function bootstrap(db, user) {
 async function importTransactions(db, user, payload) {
   const transactions = Array.isArray(payload.transactions) ? payload.transactions.slice(0, 1000) : [];
   if (!transactions.length) return json({ error: "At least one transaction is required" }, 400);
-  let imported = 0;
-  for (const input of transactions) {
-    const amountPaise = Math.round(Number(input.amount || 0) * 100);
-    const occurredAt = new Date(input.occurredAt || input.date || Date.now()).toISOString();
-    const merchant = normalizeMerchant(String(input.merchant || input.description || "Unknown payment")).slice(0, 160);
-    if (!Number.isFinite(amountPaise) || amountPaise <= 0 || !merchant) continue;
-    const transaction = { merchant, amountPaise, occurredAt, categoryConfidence: input.category ? .75 : 0 };
-    const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,importance_score,dedupe_key,source) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), user.id, amountPaise, merchant, String(input.description || "").slice(0, 300), occurredAt, String(input.category || "Uncategorised").slice(0, 80), importance(transaction), dedupeKey(transaction), String(payload.source || "csv").slice(0, 30)).run();
+  let imported = 0, verified = 0, duplicates = 0;
+  for (const item of transactions) {
+    const input = transactionInput(item); if (!input) continue;
+    const source = String(item.source || payload.source || "csv").slice(0, 120);
+    const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category ? .75 : 0 };
+    const matched = await verifiedDuplicate(db, user.id, input, source);
+    if (matched) {
+      const incomingSources = sourceSet(source); const crossSource = ![...sourceSet(matched.source)].some((value) => incomingSources.has(value));
+      await mergeVerifiedDuplicate(db, user.id, matched, input, source); if (crossSource) verified++; else duplicates++; continue;
+    }
+    const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, importance(transaction), dedupeKey(transaction), source, input.accountTag).run();
     imported += Number(result.meta?.changes || 0);
+    if (!result.meta?.changes) duplicates++;
   }
-  await audit(db, user.id, "transactions.imported", "transaction", null, { imported, received: transactions.length });
-  return json({ imported, duplicates: transactions.length - imported });
+  await audit(db, user.id, "transactions.imported", "transaction", null, { imported, verified, duplicates, received: transactions.length });
+  return json({ imported, verified, duplicates });
 }
 
 function transactionInput(payload, existing = {}) {
@@ -218,6 +265,7 @@ function transactionInput(payload, existing = {}) {
     category: String(payload.category ?? existing.category ?? "Uncategorised").slice(0, 80),
     context: String(payload.context ?? existing.context ?? "").slice(0, 1000),
     reviewStatus: ["unresolved", "explained", "known", "deferred", "auto_resolved"].includes(payload.reviewStatus) ? payload.reviewStatus : (existing.review_status || "unresolved"),
+    accountTag: String(payload.accountTag ?? existing.account_tag ?? "").slice(0, 100),
   };
 }
 
@@ -229,7 +277,7 @@ async function listTransactions(db, user, url) {
   const transactions = rows.results.map(mapTransaction).filter((row) => {
     if (status !== "all" && row.reviewStatus !== status) return false;
     if (category !== "all" && row.category !== category) return false;
-    return !search || `${row.merchant} ${row.description || ""} ${row.context || ""}`.toLowerCase().includes(search);
+    return !search || `${row.merchant} ${row.description || ""} ${row.context || ""} ${row.accountTag || ""}`.toLowerCase().includes(search);
   });
   return json({ transactions, total: transactions.length });
 }
@@ -239,7 +287,7 @@ async function createTransaction(db, user, payload) {
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
   const id = crypto.randomUUID();
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
-  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual").run();
+  const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,category,review_status,context,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id, user.id, input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), "manual", input.accountTag).run();
   if (!result.meta?.changes) return json({ error: "This transaction already exists" }, 409);
   await audit(db, user.id, "transaction.created", "transaction", id);
   const row = await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").bind(id, user.id).first();
@@ -253,7 +301,7 @@ async function replaceTransaction(db, user, id, payload) {
   if (!input) return json({ error: "Merchant, a positive amount, and a valid date are required" }, 400);
   const transaction = { merchant: input.merchant, amountPaise: input.amountPaise, occurredAt: input.occurredAt, categoryConfidence: input.category === "Uncategorised" ? 0 : .75 };
   try {
-    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), id, user.id).run();
+    await db.prepare("UPDATE transactions SET amount_paise=?,merchant=?,description=?,occurred_at=?,category=?,review_status=?,context=?,importance_score=?,dedupe_key=?,account_tag=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(input.amountPaise, input.merchant, input.description, input.occurredAt, input.category, input.reviewStatus, input.context, importance(transaction), dedupeKey(transaction), input.accountTag, id, user.id).run();
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) return json({ error: "This edit would duplicate another transaction" }, 409);
     throw error;
@@ -320,6 +368,61 @@ async function savePreferences(db, user, payload) {
   return json(await getPreferences(db, user.id));
 }
 
+async function savePushDevice(db, user, payload) {
+  const token = String(payload.token || "").toLowerCase();
+  const environment = payload.environment === "sandbox" ? "sandbox" : "production";
+  if (!/^[0-9a-f]{64,200}$/.test(token)) return json({ error: "Invalid APNs device token" }, 400);
+  await db.prepare("INSERT INTO push_devices (token,user_id,session_id,environment) VALUES (?,?,?,?) ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id,session_id=excluded.session_id,environment=excluded.environment,updated_at=CURRENT_TIMESTAMP").bind(token, user.id, user.sessionId, environment).run();
+  await audit(db, user.id, "push.registered", "mobile_session", user.sessionId, { environment });
+  return json({ registered: true });
+}
+
+async function deletePushDevice(db, user, payload = {}) {
+  const token = String(payload?.token || "").toLowerCase();
+  if (token) await db.prepare("DELETE FROM push_devices WHERE user_id=? AND token=?").bind(user.id, token).run();
+  else await db.prepare("DELETE FROM push_devices WHERE user_id=? AND session_id=?").bind(user.id, user.sessionId).run();
+  return json({ deleted: true });
+}
+
+let apnsAuthCache = null;
+function pemBytes(value) {
+  const body = String(value || "").replaceAll("\\n", "\n").replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, "");
+  const binary = atob(body); return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+async function apnsAuthorization(env) {
+  if (!env.APNS_TEAM_ID || !env.APNS_KEY_ID || !env.APNS_PRIVATE_KEY) throw new Error("APNs credentials are not configured");
+  const now = Math.floor(Date.now() / 1000);
+  if (apnsAuthCache && now - apnsAuthCache.createdAt < 3000) return apnsAuthCache.value;
+  const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: "ES256", kid: env.APNS_KEY_ID })));
+  const claims = base64url(new TextEncoder().encode(JSON.stringify({ iss: env.APNS_TEAM_ID, iat: now })));
+  const unsigned = `${header}.${claims}`;
+  const key = await crypto.subtle.importKey("pkcs8", pemBytes(env.APNS_PRIVATE_KEY), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(unsigned)));
+  const value = `bearer ${unsigned}.${base64url(signature)}`; apnsAuthCache = { createdAt: now, value }; return value;
+}
+
+async function sendAPNs(env, device, summary) {
+  const authorization = await apnsAuthorization(env);
+  const host = device.environment === "sandbox" ? "https://api.sandbox.push.apple.com" : "https://api.push.apple.com";
+  const body = summary.count === 1 ? "One payment needs a little context." : `${summary.count} payments need a little context.`;
+  const response = await fetch(`${host}/3/device/${device.token}`, {
+    method: "POST",
+    headers: {
+      authorization,
+      "apns-topic": env.APNS_TOPIC || device.app_bundle || "com.shashankmahajan.paisa",
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: { alert: { title: "Your Paisa inbox is ready", body }, sound: "default", badge: summary.count, category: "DAILY_REVIEW" }, route: "review" }),
+  });
+  if (response.status === 410 || response.status === 400) {
+    const reason = await response.json().catch(() => ({}));
+    if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(reason.reason)) return { ok: false, remove: true, reason: reason.reason };
+  }
+  return { ok: response.ok, remove: false, reason: response.ok ? "sent" : `http_${response.status}` };
+}
+
 async function processReminders(env) {
   const users = await env.DB.prepare("SELECT id FROM users").all();
   let scheduled = 0;
@@ -331,10 +434,20 @@ async function processReminders(env) {
     if (!shouldNotify(summary, preferences, Boolean(delivered))) continue;
     const deliveryId = crypto.randomUUID();
     await env.DB.prepare("INSERT OR IGNORE INTO notification_deliveries (id,user_id,review_date,status) VALUES (?,?,?,'scheduled')").bind(deliveryId, row.id, today).run();
-    if (env.PUSH_WEBHOOK_URL) {
-      const response = await fetch(env.PUSH_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.PUSH_WEBHOOK_SECRET || ""}` }, body: JSON.stringify({ userId: row.id, title: "Review today’s spending", body: `${summary.count} payments need context`, unresolvedAmountPaise: summary.amountPaise }) });
-      await env.DB.prepare("UPDATE notification_deliveries SET status=? WHERE id=?").bind(response.ok ? "sent" : "failed", deliveryId).run();
+    const devices = await env.DB.prepare("SELECT token,environment,app_bundle FROM push_devices WHERE user_id=?").bind(row.id).all();
+    let sent = 0, failed = 0;
+    for (const device of devices.results) {
+      try {
+        const result = await sendAPNs(env, device, summary);
+        if (result.ok) sent++; else failed++;
+        if (result.remove) await env.DB.prepare("DELETE FROM push_devices WHERE token=?").bind(device.token).run();
+      } catch { failed++; }
     }
+    if (!sent && env.PUSH_WEBHOOK_URL) {
+      const response = await fetch(env.PUSH_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.PUSH_WEBHOOK_SECRET || ""}` }, body: JSON.stringify({ userId: row.id, title: "Review today’s spending", body: `${summary.count} payments need context`, unresolvedAmountPaise: summary.amountPaise }) });
+      if (response.ok) sent++ ; else failed++;
+    }
+    await env.DB.prepare("UPDATE notification_deliveries SET status=?,provider_message_id=? WHERE id=?").bind(sent ? "sent" : (failed ? "failed" : "no_device"), `apns:${sent};failed:${failed}`, deliveryId).run();
     scheduled++;
   }
   return { scheduled };
@@ -347,10 +460,12 @@ async function handleApi(request, env, url) {
     if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
     return json(await processReminders(env));
   }
-  if (url.pathname === "/api/mobile/sync" || url.pathname === "/api/mobile/session") {
+  if (["/api/mobile/sync", "/api/mobile/session", "/api/mobile/push-token"].includes(url.pathname)) {
     const mobileUser = await getMobileUser(request, env.DB); if (!mobileUser) return json({ error: "Mobile authentication required" }, 401);
     if (request.method === "POST" && url.pathname === "/api/mobile/sync") return syncMobile(env.DB, mobileUser, await request.json());
-    if (request.method === "DELETE" && url.pathname === "/api/mobile/session") { await env.DB.prepare("UPDATE mobile_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(mobileUser.sessionId).run(); return json({ disconnected: true }); }
+    if (request.method === "POST" && url.pathname === "/api/mobile/push-token") return savePushDevice(env.DB, mobileUser, await request.json());
+    if (request.method === "DELETE" && url.pathname === "/api/mobile/push-token") return deletePushDevice(env.DB, mobileUser, await request.json().catch(() => ({})));
+    if (request.method === "DELETE" && url.pathname === "/api/mobile/session") { await env.DB.batch([env.DB.prepare("DELETE FROM push_devices WHERE session_id=?").bind(mobileUser.sessionId), env.DB.prepare("UPDATE mobile_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(mobileUser.sessionId)]); return json({ disconnected: true }); }
   }
   const user = getUser(request);
   if (!user) return json({ error: "Authentication required" }, 401);
@@ -365,7 +480,7 @@ async function handleApi(request, env, url) {
   if (request.method === "POST" && url.pathname === "/api/reviews/batch") return batchExplain(env.DB, user, await request.json());
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/export") {
-    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,category,review_status,context,source FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
+    const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,category,review_status,context,source,account_tag FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
     return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results });
   }
   if (request.method === "DELETE" && url.pathname === "/api/account") {

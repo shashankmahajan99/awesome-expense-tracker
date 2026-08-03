@@ -118,10 +118,11 @@ import AppTopbar from "../components/AppTopbar.astro";
 
     <dialog class="sheet-dialog import-dialog" id="import-dialog">
       <div class="sheet-top"><div><span class="eyebrow">IMPORT TRANSACTIONS</span><h2>Bring your spending into Paisa.</h2></div><button type="button" data-close-import aria-label="Close import">×</button></div>
-      <p class="sheet-intro">Upload your bank statement as a PDF or CSV. PDF text is read in your browser; Paisa sends only the transactions you confirm.</p>
-      <label class="file-drop" id="file-drop"><input id="statement-file" type="file" accept=".csv,.pdf,text/csv,application/pdf" /><span>⇧</span><strong>Choose a bank PDF or CSV</strong><small>PDF statements up to 20 MB · password-protected files supported</small></label>
-      <div class="import-loading" id="import-loading" hidden><i></i><span><strong>Reading statement…</strong><small>This can take a few seconds for large PDFs.</small></span></div>
-      <div class="import-preview" id="import-preview" hidden><div><strong id="import-count">0 transactions ready</strong><small id="import-filename"></small></div><button type="button" id="clear-import">Remove</button></div>
+      <p class="sheet-intro">Select bank, card, and Paytm statements together. Paisa verifies matching entries across sources instead of counting the same payment twice.</p>
+      <label class="file-drop" id="file-drop"><input id="statement-file" type="file" accept=".csv,.pdf,text/csv,application/pdf" multiple /><span>⇧</span><strong>Choose PDFs or CSVs</strong><small>Multiple files supported · up to 20 MB each · parsed locally</small></label>
+      <div class="import-loading" id="import-loading" hidden><i></i><span><strong id="import-progress-title">Preparing statements…</strong><small id="import-progress-detail">Reading file metadata</small><b><em id="import-progress-bar"></em></b></span></div>
+      <div class="import-files" id="import-files" hidden aria-live="polite"></div>
+      <div class="import-preview" id="import-preview" hidden><div><strong id="import-count">0 transactions ready</strong><small id="import-filename"></small></div><button type="button" id="clear-import">Remove all</button></div>
       <div class="preference-note"><span>♢</span><p><strong>Your raw statement is never uploaded or stored.</strong><small>Extraction happens locally. Only the parsed transaction rows are sent after you confirm.</small></p></div>
       <div class="sheet-actions"><button class="secondary-button" type="button" data-close-import>Cancel</button><button class="primary-button" type="button" id="import-submit" disabled>Import securely</button></div>
     </dialog>
