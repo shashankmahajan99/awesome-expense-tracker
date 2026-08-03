@@ -62,8 +62,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             : "\(unresolvedCount) payments worth \(PaisaFormat.amount(unresolvedAmount)) need a little context."
         content.sound = .default; content.badge = NSNumber(value: unresolvedCount); content.categoryIdentifier = "DAILY_REVIEW"
         var components = DateComponents(); components.hour = reviewHour; components.minute = reviewMinute
-        let next = Calendar.current.nextDate(after: .now, matching: components, matchingPolicy: .nextTime) ?? Date().addingTimeInterval(3600)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: next), repeats: false)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
         try? await center.add(UNNotificationRequest(identifier: "paisa.daily-inbox", content: content, trigger: trigger))
     }
 
