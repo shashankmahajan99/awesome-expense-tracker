@@ -3,6 +3,7 @@ interface Props { id: string }
 const { id } = Astro.props;
 ---
 <div class="date-window" id={id} data-date-window>
-  <label><span>Date window</span><select data-window-select><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="month">This month</option><option value="year">This year</option><option value="custom">Custom dates</option></select></label>
-  <div class="date-window-custom" data-window-custom hidden><label><span>From</span><input type="date" data-window-from /></label><label><span>To</span><input type="date" data-window-to /></label></div>
+  <label class="date-window-preset"><span>Period</span><select data-window-select><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="month">This month</option><option value="year">This year</option><option value="custom">Custom</option></select></label>
+  <label><span>From date</span><input type="date" data-window-from aria-label="From date" /></label>
+  <label><span>To date</span><input type="date" data-window-to aria-label="To date" /></label>
 </div>
