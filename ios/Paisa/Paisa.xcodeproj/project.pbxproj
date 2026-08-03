@@ -19,6 +19,7 @@
 		7E034746E975AA523609E92F /* PaisaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442737AF976C78C2494E6621 /* PaisaApp.swift */; };
 		C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF5760BD7C0152184603E97 /* TransactionsView.swift */; };
 		FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */; };
+		AA0000010000000000000001 /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000100000000000000001 /* Shortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 		C755540DECB7CF711E6AA700 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		D9681764243E7CC608F8FF25 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
+		AA0000100000000000000001 /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -76,6 +78,7 @@
 				442737AF976C78C2494E6621 /* PaisaApp.swift */,
 				ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */,
 				8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */,
+				AA0000100000000000000001 /* Shortcuts.swift */,
 				C755540DECB7CF711E6AA700 /* SyncService.swift */,
 				ABF5760BD7C0152184603E97 /* TransactionsView.swift */,
 			);
@@ -211,6 +214,7 @@
 				FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */,
 				61DB449BCDCCBFD969549E5E /* SyncService.swift in Sources */,
 				C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */,
+				AA0000010000000000000001 /* Shortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

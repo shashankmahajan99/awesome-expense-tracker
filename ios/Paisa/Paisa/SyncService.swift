@@ -30,8 +30,14 @@ private struct SyncResponse: Decodable {
     let transactions: [SyncTransaction]
     let tombstones: [SyncTombstone]
     let aliases: [String: String]
+    let accounts: [SyncPaymentAccount]?
     let preferences: MobileSyncPreferences?
 }
+
+private struct SyncPaymentAccount: Codable {
+    let id: String; let name: String; let kind: String; let institution: String; let lastFour: String; let aliases: [String]; let updatedAt: String?
+}
+private struct MobileSyncPayload: Encodable { let transactions: [SyncTransaction]; let accounts: [SyncPaymentAccount] }
 
 private struct MobileSyncPreferences: Decodable { let reviewTime: String }
 
@@ -163,6 +169,7 @@ final class SyncManager: ObservableObject {
                         note: receipt.note,
                         reviewStatus: "unresolved",
                         source: "ios_share",
+                        accountTag: receipt.accountTag ?? "",
                         updatedAt: receipt.createdAt
                     ))
                 }
@@ -211,6 +218,7 @@ final class SyncManager: ObservableObject {
 
     private func sync(context: ModelContext) async throws {
         let local = try context.fetch(FetchDescriptor<PaisaTransaction>())
+        let localAccounts = try context.fetch(FetchDescriptor<PaymentAccount>())
         let payload = local.map { item in
             SyncTransaction(id: item.id.uuidString.lowercased(), merchant: item.merchant, amount: item.amount, occurredAt: Self.format(item.occurredAt), timeVerified: item.timeVerified, category: item.category, context: item.note, reviewStatus: item.reviewStatus, source: item.source, accountTag: item.accountTag, updatedAt: Self.format(item.updatedAt), isDeleted: item.isDeleted)
         }
@@ -221,7 +229,8 @@ final class SyncManager: ObservableObject {
         for chunk in chunks {
             if syncCancellationRequested { status = "Sync stopped — \(syncCompleted) synced, \(max(0, syncTotal - syncCompleted)) left"; return }
             status = syncTotal > 0 ? "Syncing \(syncCompleted) of \(syncTotal)…" : "Checking the cloud inbox…"
-            let result: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: ["transactions": chunk], authenticated: true)
+            let accountPayload = localAccounts.map { SyncPaymentAccount(id: $0.id.uuidString.lowercased(), name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour, aliases: $0.aliases, updatedAt: Self.format($0.updatedAt)) }
+            let result: SyncResponse = try await request("/api/mobile/sync", method: "POST", body: MobileSyncPayload(transactions: chunk, accounts: accountPayload), authenticated: true)
             response = result; result.aliases.forEach { aliases[$0.key] = $0.value }
             syncCompleted = min(syncTotal, syncCompleted + chunk.count)
         }
@@ -245,7 +254,16 @@ final class SyncManager: ObservableObject {
             guard let deletedAt = Self.parse(tombstone.deletedAt), let item = byID[tombstone.id.lowercased()], deletedAt >= item.updatedAt else { continue }
             item.isDeleted = true; item.updatedAt = deletedAt
         }
+        let accountsByID = Dictionary(uniqueKeysWithValues: localAccounts.map { ($0.id.uuidString.lowercased(), $0) })
+        let accountsByName = Dictionary(localAccounts.map { ($0.name.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        for remote in response.accounts ?? [] {
+            guard let id = UUID(uuidString: remote.id) else { continue }
+            if let account = accountsByID[remote.id.lowercased()] ?? accountsByName[remote.name.lowercased()] { account.name = remote.name; account.kind = remote.kind; account.institution = remote.institution; account.lastFour = remote.lastFour; account.aliasesJSON = (try? String(data: JSONEncoder().encode(remote.aliases), encoding: .utf8)) ?? "[]" }
+            else { context.insert(PaymentAccount(id: id, name: remote.name, kind: remote.kind, institution: remote.institution, lastFour: remote.lastFour, aliases: remote.aliases)) }
+        }
         try context.save()
+        let savedAccounts = try context.fetch(FetchDescriptor<PaymentAccount>())
+        SharedPaymentAccountDirectory.save(savedAccounts.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) })
         if let components = response.preferences?.reviewTime.split(separator: ":"), components.count == 2,
            let hour = Int(components[0]), let minute = Int(components[1]), (0...23).contains(hour), (0...59).contains(minute) {
             reviewHour = hour; reviewMinute = minute

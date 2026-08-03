@@ -8,7 +8,7 @@ struct PaisaApp: App {
     @StateObject private var notifications = NotificationManager.shared
     var body: some Scene {
         WindowGroup { RootView().environmentObject(sync).environmentObject(notifications) }
-            .modelContainer(for: PaisaTransaction.self)
+            .modelContainer(for: [PaisaTransaction.self, PaymentAccount.self])
     }
 }
 
@@ -59,11 +59,28 @@ struct RootView: View {
     private func importSharesAndSync() async {
         await notifications.configure()
         sync.importSharedReceipts(context: context)
+        bootstrapPaymentAccounts()
         await sync.syncIfConnected(context: context)
         if let transactions = try? context.fetch(FetchDescriptor<PaisaTransaction>()) {
             let unresolved = transactions.filter { !$0.isDeleted && $0.reviewStatus == "unresolved" }
             await notifications.scheduleDailyInbox(unresolvedCount: unresolved.count, unresolvedAmount: unresolved.reduce(0) { $0 + $1.amount }, reviewHour: sync.reviewHour, reviewMinute: sync.reviewMinute)
         }
         if notifications.isEnabledForPaisa, let token = notifications.deviceToken { await sync.registerPushToken(token) }
+    }
+
+    private func bootstrapPaymentAccounts() {
+        guard let transactions = try? context.fetch(FetchDescriptor<PaisaTransaction>()), let accounts = try? context.fetch(FetchDescriptor<PaymentAccount>()) else { return }
+        let names = Set(accounts.map { $0.name.lowercased() })
+        for tag in Set(transactions.map(\.accountTag).filter { !$0.isEmpty }) where !names.contains(tag.lowercased()) {
+            let lower = tag.lowercased(), kind = lower.contains("card") ? "card" : (lower.contains("paytm") || lower.contains("wallet") ? "wallet" : "bank")
+            let institution = ["ICICI", "HDFC", "Axis", "SBI", "Kotak"].first { lower.contains($0.lowercased()) } ?? ""
+            context.insert(PaymentAccount(name: tag, kind: kind, institution: institution))
+        }
+        try? context.save()
+        if let saved = try? context.fetch(FetchDescriptor<PaymentAccount>()) { publishPaymentAccounts(saved) }
+    }
+
+    private func publishPaymentAccounts(_ accounts: [PaymentAccount]) {
+        SharedPaymentAccountDirectory.save(accounts.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) })
     }
 }

@@ -13,6 +13,7 @@ let pendingImportFiles = [];
 let activeRecognition = null;
 let reviewSaving = false;
 let batchMatching = false;
+let paymentAccounts = [];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "content-type": "application/json", ...(options.headers || {}) } });
@@ -120,6 +121,7 @@ function renderReview() {
   $("#review-hint").textContent = item.category && item.category.toLowerCase() !== "uncategorised" ? `We suggested ${item.category}. Change it if needed, then add an optional note.` : "Choose a category. Add a note only if it will help you understand this later."; $("#answer-input").value = item.context || "";
   const date = new Date(item.occurredAt), local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
   $("#review-edit-merchant").value = item.merchant; $("#review-edit-amount").value = String(item.amountPaise / 100); $("#review-edit-date").value = local.slice(0, 10); $("#review-edit-time").value = item.timeVerified ? local.slice(11, 16) : "";
+  const account = $("#review-edit-account"); account.replaceChildren(new Option("No payment account", ""), ...paymentAccounts.map((value) => new Option(value.name, value.name))); if (item.accountTag && !paymentAccounts.some((value) => value.name === item.accountTag)) account.append(new Option(item.accountTag, item.accountTag)); account.value = item.accountTag || "";
   populateReviewCategories(item.category);
 }
 
@@ -146,7 +148,7 @@ async function resolveCurrent(action, message, context = "") {
     const category = reviewCategory(); const merchant = $("#review-edit-merchant").value.trim(); const amount = Number($("#review-edit-amount").value); const occurredDate = $("#review-edit-date").value; const occurredTime = $("#review-edit-time").value;
     if (!merchant || !amount || !occurredDate) throw new Error("Merchant, amount, and date are required");
     const occurredAt = new Date(`${occurredDate}T${occurredTime || "12:00"}:00`).toISOString();
-    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify({ merchant, amount, occurredAt, timeVerified: Boolean(occurredTime), category, context, description: item.description || "", accountTag: item.accountTag || "", reviewStatus: item.reviewStatus }) });
+    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify({ merchant, amount, occurredAt, timeVerified: Boolean(occurredTime), category, context, description: item.description || "", accountTag: $("#review-edit-account").value, reviewStatus: item.reviewStatus }) });
     await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
@@ -253,10 +255,9 @@ function populatePreferences(value) {
 function accountTagFor(filename, text = "") {
   const value = `${filename} ${text}`.toLowerCase();
   const bank = [["icici", "ICICI"], ["hdfc", "HDFC"], ["axis", "Axis"], ["sbi", "SBI"], ["kotak", "Kotak"], ["yes bank", "YES Bank"]].find(([key]) => value.includes(key))?.[1];
-  if (value.includes("paytm")) return bank ? `Paytm - Savings ${bank}` : "Paytm Wallet";
-  if (value.includes("rupay")) return bank ? `RuPay Card - ${bank}` : "RuPay Card";
-  if (value.includes("credit card") || value.includes("card statement")) return bank ? `Credit Card - ${bank}` : "Credit Card";
-  return bank ? `Savings - ${bank}` : "Bank account";
+  const suggestion = value.includes("paytm") ? (bank ? `Paytm - Savings ${bank}` : "Paytm Wallet") : value.includes("rupay") ? (bank ? `RuPay Card - ${bank}` : "RuPay Card") : (value.includes("credit card") || value.includes("card statement")) ? (bank ? `Credit Card - ${bank}` : "Credit Card") : (bank ? `Savings - ${bank}` : "Bank account");
+  const scored = paymentAccounts.map((account) => ({ account, score: [account.name, account.institution, ...(account.aliases || [])].filter(Boolean).reduce((total, candidate) => total + (value.includes(String(candidate).toLowerCase()) || suggestion.toLowerCase().includes(String(candidate).toLowerCase()) ? String(candidate).length : 0), 0) })).sort((left, right) => right.score - left.score);
+  return scored[0]?.score ? scored[0].account.name : "";
 }
 
 function importSource(filename, accountTag) {
@@ -349,8 +350,8 @@ function renderImportFiles() {
     const card = document.createElement("div"); card.className = `import-file ${entry.status}`;
     const icon = document.createElement("i"); icon.textContent = entry.status === "ready" ? "✓" : entry.status === "failed" ? "!" : "…";
     const copy = document.createElement("span"); const name = document.createElement("strong"); name.textContent = entry.name; const detail = document.createElement("small"); detail.textContent = entry.detail; copy.append(name, detail);
-    const tag = document.createElement("input"); tag.value = entry.accountTag || ""; tag.placeholder = "Account tag"; tag.disabled = entry.status !== "ready"; tag.setAttribute("aria-label", `Account tag for ${entry.name}`);
-    tag.addEventListener("input", () => { entry.accountTag = tag.value; entry.rows.forEach((row) => { row.accountTag = tag.value; }); });
+    const tag = document.createElement("select"); tag.className = "payment-account-picker"; tag.replaceChildren(new Option(entry.status === "ready" ? "Choose saved account" : "Waiting for parser", ""), ...paymentAccounts.map((account) => new Option(`${account.name}${account.lastFour ? ` · •••• ${account.lastFour}` : ""}`, account.name))); tag.value = entry.accountTag || ""; tag.disabled = entry.status !== "ready"; tag.setAttribute("aria-label", `Payment account for ${entry.name}`);
+    tag.addEventListener("change", () => { entry.accountTag = tag.value; entry.rows.forEach((row) => { row.accountTag = tag.value; }); $("#import-submit").disabled = !pendingImport.length || pendingImportFiles.some((file) => file.status === "ready" && !file.accountTag); });
     card.append(icon, copy, tag); root.append(card);
   });
 }
@@ -359,7 +360,7 @@ async function loadDashboard() {
   try {
     const query = window.PaisaDateWindow.query($("#dashboard-date-window")).toString(); const suffix = query ? `?${query}` : "";
     const [data, insights] = await Promise.all([api(`/api/bootstrap${suffix}`), api(`/api/insights${suffix}`)]);
-    items = data.transactions.map(mapTransaction); reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
+    items = data.transactions.map(mapTransaction); paymentAccounts = data.accounts || []; reviewedCount = 0; syncQueue(); applyPreferences(data.preferences);
     const firstName = (data.user.name || "there").split(" ")[0]; $(".topbar h1").textContent = `Good evening, ${firstName}.`;
     $("[data-profile-name]").textContent = data.user.name || firstName; $("[data-profile-email]").textContent = data.user.email || "Private account";
     const understood = data.totals.count ? Math.round(((data.totals.count - data.summary.count) / data.totals.count) * 100) : 100;
@@ -467,7 +468,7 @@ $("#statement-file")?.addEventListener("change", async (event) => {
   const readyFiles = pendingImportFiles.filter((file) => file.status === "ready").length;
   $("#import-count").textContent = pendingImport.length ? `${pendingImport.length} transactions ready` : "No debit transactions detected";
   $("#import-filename").textContent = `${readyFiles} of ${selected.length} files parsed · account tags remain editable`;
-  $("#import-submit").disabled = !pendingImport.length;
+  $("#import-submit").disabled = !pendingImport.length || pendingImportFiles.some((file) => file.status === "ready" && !file.accountTag);
 });
 $("#clear-import")?.addEventListener("click", () => { pendingImport = []; pendingImportFiles = []; $("#statement-file").value = ""; $("#import-preview").hidden = true; $("#import-files").hidden = true; $("#import-submit").disabled = true; });
 $("#import-submit")?.addEventListener("click", async () => {
@@ -476,11 +477,9 @@ $("#import-submit")?.addEventListener("click", async () => {
 });
 
 $$('[data-close-completion]').forEach((button) => button.addEventListener("click", () => dialogs.completion.close()));
-$(".menu-button")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
 Object.values(dialogs).filter(Boolean).forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target === dialog) { stopVoice(); dialog.close(); } }));
 const params = new URLSearchParams(location.search);
 if (["preferences", "import", "review"].some((key) => params.has(key))) history.replaceState({}, "", `${location.pathname}${location.hash}`);
-if (params.has("preferences")) setTimeout(() => { populatePreferences(preferences); dialogs.preferences?.showModal(); }, 400);
 if (params.has("import")) dialogs.import?.showModal();
 if (params.has("review")) setTimeout(() => openReview(params.get("review")), 400);
 window.PaisaDateWindow.setup($("#dashboard-date-window"), () => { showDashboardLoading(); loadDashboard(); });

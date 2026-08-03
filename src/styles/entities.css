@@ -1,0 +1,15 @@
+.account-control{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}
+.account-control select{min-width:0}
+.account-control button{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--green);padding:0 10px;font-weight:700;cursor:pointer}
+.account-dialog form{margin-top:20px}
+.payment-account-picker{width:100%}
+.account-spend-list{display:grid;gap:10px;padding:5px 21px 20px}
+.account-spend-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}
+.account-spend-row small{display:block;color:var(--muted);margin-top:3px}
+.bulk-toolbar[hidden]{display:none}
+.advanced-transaction-fields{border:1px solid var(--line);border-radius:10px;background:#f7f4ec;padding:0 13px}
+.advanced-transaction-fields summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;cursor:pointer;color:#506158;font-size:11px;font-weight:700}
+.advanced-transaction-fields summary small{color:#869089;font-weight:500}
+.advanced-transaction-fields[open] summary{border-bottom:1px solid var(--line);margin-bottom:13px}
+.advanced-transaction-fields>.editor-grid{padding-bottom:13px}
+[data-theme="dark"] .advanced-transaction-fields{background:var(--panel)}

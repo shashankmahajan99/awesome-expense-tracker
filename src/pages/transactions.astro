@@ -46,19 +46,22 @@ import DateWindow from "../components/DateWindow.astro";
         <div class="editor-grid">
           <label><span>Merchant</span><input name="merchant" required maxlength="160" placeholder="e.g. Swiggy" /></label>
           <label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" placeholder="0.00" /></label>
-          <label><span>Date</span><input name="occurredDate" required type="date" /></label>
-          <label><span>Time <small>(optional)</small></span><input name="occurredTime" type="time" /></label>
-          <label><span>Category</span><div class="category-control"><div class="category-input"><input id="transaction-category" name="category" autocomplete="off" placeholder="Choose or type a category" /><button id="show-categories" type="button" aria-label="Show category suggestions" aria-expanded="false">⌄</button></div><div class="category-suggestions" id="category-suggestions" role="listbox" hidden></div></div></label>
-          <label><span>Account tag</span><input name="accountTag" maxlength="100" placeholder="Savings - ICICI" /></label>
-          <label><span>Review status</span><select name="reviewStatus"><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select></label>
-          <label class="wide"><span>Description</span><input name="description" maxlength="300" placeholder="Optional bank narration" /></label>
-          <label class="wide"><span>Context or note</span><textarea name="context" rows="3" maxlength="1000" placeholder="What was this payment for?"></textarea></label>
+          <label><span>Payment account</span><div class="account-control"><select name="accountTag" id="transaction-account"><option value="">No payment account</option></select><button type="button" id="new-payment-account">＋ New</button></div></label>
+          <label><span>Category <small>(optional)</small></span><div class="category-control"><div class="category-input"><input id="transaction-category" name="category" autocomplete="off" placeholder="Choose or type a category" /><button id="show-categories" type="button" aria-label="Show category suggestions" aria-expanded="false">⌄</button></div><div class="category-suggestions" id="category-suggestions" role="listbox" hidden></div></div></label>
+          <details class="advanced-transaction-fields wide" id="transaction-advanced"><summary><span>Date, status & optional details</span><small>Today · Needs review</small></summary><div class="editor-grid">
+            <label><span>Date</span><input name="occurredDate" required type="date" /></label>
+            <label><span>Time <small>(optional)</small></span><input name="occurredTime" type="time" /></label>
+            <label><span>Review status</span><select name="reviewStatus"><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select></label>
+            <label class="wide"><span>Description</span><input name="description" maxlength="300" placeholder="Optional bank narration" /></label>
+            <label class="wide"><span>Context or note</span><textarea name="context" rows="3" maxlength="1000" placeholder="What was this payment for?"></textarea></label>
+          </div></details>
         </div>
         <p class="form-error" id="form-error" hidden></p>
         <div class="sheet-actions editor-actions"><button class="danger-button" id="delete-transaction" type="button" hidden>Delete transaction</button><span></span><button class="secondary-button" type="button" data-close-dialog>Cancel</button><button class="primary-button" type="submit" id="save-transaction">Save transaction</button></div>
       </form>
     </dialog>
+    <dialog class="sheet-dialog account-dialog" id="account-dialog"><div class="sheet-top"><div><span class="eyebrow">PAYMENT ACCOUNT</span><h2>Save it once. Reuse it everywhere.</h2></div><button type="button" data-close-account aria-label="Close">×</button></div><form id="account-form"><div class="editor-grid"><label><span>Name</span><input name="name" required maxlength="100" placeholder="ICICI Salary Account" /></label><label><span>Type</span><select name="kind"><option value="bank">Bank account</option><option value="card">Credit / debit card</option><option value="wallet">Wallet</option><option value="app">Payment app</option><option value="cash">Cash</option><option value="other">Other</option></select></label><label><span>Institution</span><input name="institution" maxlength="80" placeholder="ICICI" /></label><label><span>Last four <small>(optional)</small></span><input name="lastFour" inputmode="numeric" maxlength="4" placeholder="1234" /></label></div><p class="sheet-intro">Statements and SMS imports use only a saved account from this list. Paisa Inbox will not invent another tag.</p><div class="sheet-actions"><button class="secondary-button" type="button" data-close-account>Cancel</button><button class="primary-button" type="submit">Save account</button></div></form></dialog>
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Saved</strong><small>Your ledger is up to date</small></p></div>
-    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/transactions.js?v=18"></script>
+    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/transactions.js?v=20"></script>
   </body>
 </html>

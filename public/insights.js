@@ -10,6 +10,7 @@ function showLoading() {
   const bars = $("#daily-bars"); bars.classList.add("insight-skeleton-bars"); bars.setAttribute("aria-busy", "true"); bars.innerHTML = [34, 58, 42, 76, 52, 88, 64].map((height) => `<div><small>${line("short")}</small><i style="height:${height}%"></i>${line("tiny")}</div>`).join("");
   const categories = $("#insight-categories"); categories.setAttribute("aria-busy", "true"); categories.innerHTML = Array.from({ length: 4 }, () => `<div class="insight-category insight-category-skeleton"><div>${line("medium")}${line("short")}</div><div><i></i></div></div>`).join("");
   const health = $("#review-health"); health.setAttribute("aria-busy", "true"); health.innerHTML = Array.from({ length: 3 }, () => `<div class="review-health-skeleton">${line("medium")}${line("short")}</div>`).join("");
+  $("#account-spend-list").innerHTML = Array.from({ length: 3 }, () => `<div class="review-health-skeleton">${line("medium")}${line("short")}</div>`).join("");
 }
 
 async function load() {
@@ -38,6 +39,7 @@ async function load() {
     });
     const health = $("#review-health"); health.replaceChildren(); health.setAttribute("aria-busy", "false");
     data.statuses.forEach((item) => { const row = document.createElement("div"); const label = document.createElement("span"); label.textContent = item.status.replaceAll("_", " "); const count = document.createElement("strong"); count.textContent = item.count; row.append(label, count); health.append(row); });
+    const accountRoot = $("#account-spend-list"); accountRoot.replaceChildren(); accountRoot.setAttribute("aria-busy", "false"); (data.accounts || []).forEach((item) => { const row = document.createElement("div"); row.className = "account-spend-row"; const copy = document.createElement("span"), name = document.createElement("strong"), meta = document.createElement("small"), amount = document.createElement("strong"); name.textContent = item.name; meta.textContent = `${item.count} payment${item.count === 1 ? "" : "s"}`; amount.textContent = formatter.format(item.amountPaise / 100); copy.append(name, meta); row.append(copy, amount); accountRoot.append(row); }); if (!(data.accounts || []).length) accountRoot.textContent = "Assign payment accounts to see bank, card, and app spending.";
   } catch (error) {
     ["#daily-bars", "#insight-categories", "#review-health"].forEach((selector) => { const root = $(selector); root.replaceChildren(); root.setAttribute("aria-busy", "false"); });
     $("#daily-bars").textContent = "Insights are temporarily unavailable.";

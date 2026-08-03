@@ -9,6 +9,7 @@ let totalPages = 1;
 let loadSequence = 0;
 const pageSize = 25;
 let availableCategories = [...defaultCategories];
+let paymentAccounts = [];
 const selectedIDs = new Set();
 
 async function api(path, options = {}) {
@@ -50,6 +51,12 @@ function renderCategoryMenu(query = "") {
 
 function toggleCategoryMenu(open) {
   $("#category-suggestions").hidden = !open; $("#show-categories").setAttribute("aria-expanded", String(open));
+}
+
+function renderPaymentAccounts(selected = "") {
+  const select = $("#transaction-account"); if (!select) return; const value = selected || select.value;
+  if (value && !paymentAccounts.some((account) => account.name === value)) paymentAccounts.push({ id: "legacy", name: value, kind: "other", lastFour: "" });
+  select.replaceChildren(new Option("No payment account", ""), ...paymentAccounts.map((account) => new Option(`${account.name}${account.lastFour ? ` · •••• ${account.lastFour}` : ""}`, account.name))); select.value = value;
 }
 
 function render(data) {
@@ -109,6 +116,7 @@ function localDateParts(value, timeVerified = true) {
 
 function openEditor(item = null) {
   form.reset(); toggleCategoryMenu(false); $("#form-error").hidden = true; form.elements.id.value = item?.id || "";
+  $("#transaction-advanced").open = Boolean(item);
   $("#editor-eyebrow").textContent = item ? "EDIT TRANSACTION" : "NEW TRANSACTION"; $("#editor-title").textContent = item ? "Update this payment." : "Add a payment.";
   $("#delete-transaction").hidden = !item;
   if (item) {
@@ -117,7 +125,7 @@ function openEditor(item = null) {
     form.elements.category.value = item.category && item.category.toLowerCase() !== "uncategorised" ? item.category : "";
     form.elements.accountTag.value = item.accountTag || "";
     form.elements.reviewStatus.value = item.reviewStatus; form.elements.description.value = item.description || ""; form.elements.context.value = item.context || "";
-  } else { const occurred = localDateParts(new Date()); form.elements.occurredDate.value = occurred.date; form.elements.occurredTime.value = occurred.time; }
+  } else { const occurred = localDateParts(new Date()); form.elements.occurredDate.value = occurred.date; form.elements.occurredTime.value = occurred.time; if (paymentAccounts.length === 1) form.elements.accountTag.value = paymentAccounts[0].name; }
   dialog.showModal(); setTimeout(() => form.elements.merchant.focus(), 0);
 }
 
@@ -125,7 +133,7 @@ async function load() {
   const sequence = ++loadSequence; showLedgerLoading();
   try {
     const params = new URLSearchParams({ page: String(currentPage), pageSize: String(pageSize), search: $("#transaction-search").value.trim(), status: $("#status-filter").value, category: $("#category-filter").value }); window.PaisaDateWindow.query($("#transactions-date-window")).forEach((value, key) => params.set(key, value));
-    const data = await api(`/api/transactions?${params}`); if (sequence !== loadSequence) return;
+    const [data, accountData] = await Promise.all([api(`/api/transactions?${params}`), api("/api/payment-accounts")]); if (sequence !== loadSequence) return; paymentAccounts = accountData.accounts || []; renderPaymentAccounts();
     if (currentPage > data.pages) { currentPage = data.pages; return load(); }
     transactions = data.transactions;
     const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("Any category", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all"; updateCategorySuggestions(data.categories);
@@ -184,4 +192,9 @@ $("#delete-transaction").addEventListener("click", async () => {
   try { await api(`/api/transactions/${encodeURIComponent(id)}`, { method: "DELETE" }); dialog.close(); toast("Transaction deleted", "It has been removed from your dashboard and insights"); await load(); }
   catch (error) { $("#form-error").textContent = error.message; $("#form-error").hidden = false; }
 });
+const accountDialog = $("#account-dialog"), accountForm = $("#account-form");
+$("#new-payment-account")?.addEventListener("click", () => { accountForm.reset(); accountDialog.showModal(); });
+document.querySelectorAll("[data-close-account]").forEach((button) => button.addEventListener("click", () => accountDialog.close()));
+accountDialog?.addEventListener("click", (event) => { if (event.target === accountDialog) accountDialog.close(); });
+accountForm?.addEventListener("submit", async (event) => { event.preventDefault(); const button = event.submitter; button.disabled = true; try { const result = await api("/api/payment-accounts", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(accountForm))) }); paymentAccounts = [...paymentAccounts.filter((account) => account.id !== result.account.id), result.account].sort((left, right) => left.name.localeCompare(right.name)); renderPaymentAccounts(result.account.name); accountDialog.close(); toast("Payment account saved", "Ready for transactions and statement imports"); } catch (error) { toast("Couldn’t save account", error.message); } finally { button.disabled = false; } });
 updateCategorySuggestions();

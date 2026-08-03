@@ -8,11 +8,13 @@ struct StatementImportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
+    @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
     @State private var showPicker = false
     @State private var loading = false
     @State private var files: [ImportFileProgress] = []
     @State private var rows: [StatementRow] = []
     @State private var message = "PDF and CSV files are parsed on this iPhone. The original files are never uploaded or stored."
+    @State private var showAccounts = false
 
     private var overallProgress: Double {
         guard !files.isEmpty else { return 0 }
@@ -33,6 +35,7 @@ struct StatementImportView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) { Button { showPicker = true } label: { Label("Add files", systemImage: "plus") } }
+                ToolbarItem(placement: .secondaryAction) { Button { showAccounts = true } label: { Label("Payment accounts", systemImage: "creditcard") } }
             }
         }
         .fileImporter(
@@ -43,6 +46,7 @@ struct StatementImportView: View {
             guard case .success(let urls) = result else { return }
             Task { await read(urls) }
         }
+        .sheet(isPresented: $showAccounts) { PaymentAccountManager() }
     }
 
     private var emptyState: some View {
@@ -118,15 +122,14 @@ struct StatementImportView: View {
                 if file.status == .parsing { ProgressView().controlSize(.small) }
             }
             if file.status == .ready {
-                TextField("Account tag", text: Binding(
+                Picker("Payment account", selection: Binding(
                     get: { files[index].accountTag },
                     set: { value in
                         files[index].accountTag = value
                         for rowIndex in rows.indices where rows[rowIndex].sourceFile == files[index].name { rows[rowIndex].accountTag = value }
                     }
-                ))
-                .textInputAutocapitalization(.words)
-                .font(.subheadline)
+                )) { Text("Choose saved account").tag(""); ForEach(paymentAccounts) { Text($0.displayName).tag($0.name) } }
+                .pickerStyle(.menu).font(.subheadline)
             }
         }
         .padding(.vertical, 4)
@@ -158,10 +161,12 @@ struct StatementImportView: View {
                     files[index].detail = "Reading rows from \(url.lastPathComponent)…"
                     parsed = try StatementDocumentParser.parseCSV(data: data, filename: url.lastPathComponent)
                 }
-                rows.append(contentsOf: parsed.rows)
+                let savedAccount = matchingAccount(for: parsed.accountTag)
+                let matchedRows = parsed.rows.map { row in StatementRow(date: row.date, timeVerified: row.timeVerified, merchant: row.merchant, amount: row.amount, category: row.category, accountTag: savedAccount, sourceFile: row.sourceFile, sourceKind: row.sourceKind, reference: row.reference) }
+                rows.append(contentsOf: matchedRows)
                 files[index].progress = 1
                 files[index].status = parsed.rows.isEmpty ? .failed : .ready
-                files[index].accountTag = parsed.accountTag
+                files[index].accountTag = savedAccount
                 files[index].detail = parsed.rows.isEmpty
                     ? "No debit transactions detected"
                     : "\(parsed.rows.count) debits · \(PaisaFormat.amount(parsed.rows.reduce(0) { $0 + $1.amount }))"
@@ -174,10 +179,11 @@ struct StatementImportView: View {
         let failed = files.filter { $0.status == .failed }.count
         message = rows.isEmpty
             ? "No debit rows were found. Password-protected PDFs must be unlocked before importing."
-            : "\(rows.count) payments are ready across \(files.count - failed) files\(failed > 0 ? "; \(failed) could not be parsed" : ""). You can edit every account tag before importing."
+            : "\(rows.count) payments are ready across \(files.count - failed) files\(failed > 0 ? "; \(failed) could not be parsed" : ""). Choose a saved payment account for each statement before importing."
     }
 
     private func importRows() {
+        guard files.filter({ $0.status == .ready }).allSatisfy({ !$0.accountTag.isEmpty }) else { message = "Choose a saved payment account for every parsed statement first."; return }
         do {
             let existing = try context.fetch(FetchDescriptor<PaisaTransaction>())
             let summary = StatementTransactionMerger.merge(rows: rows, into: existing, context: context)
@@ -188,6 +194,29 @@ struct StatementImportView: View {
         } catch {
             message = "The transactions could not be saved. Your selected files were not changed."
         }
+    }
+
+    private func matchingAccount(for detected: String) -> String {
+        var bestName = ""
+        var bestScore = 0
+        for account in paymentAccounts {
+            let score = matchScore(account, detected: detected)
+            if score > bestScore { bestName = account.name; bestScore = score }
+        }
+        return bestName
+    }
+
+    private func matchScore(_ account: PaymentAccount, detected: String) -> Int {
+        let text = detected.lowercased()
+        var candidates = [account.name, account.institution]
+        candidates.append(contentsOf: account.aliases)
+        var score = 0
+        for candidate in candidates {
+            if candidate.isEmpty { continue }
+            let normalized = candidate.lowercased()
+            if text.contains(normalized) || normalized.contains(text) { score += candidate.count }
+        }
+        return score
     }
 }
 

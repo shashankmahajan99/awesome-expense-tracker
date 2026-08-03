@@ -6,6 +6,8 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS review_groups (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title TEXT NOT NULL, context TEXT, category TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount_paise INTEGER NOT NULL, merchant TEXT NOT NULL, description TEXT, occurred_at TEXT NOT NULL, time_verified INTEGER NOT NULL DEFAULT 0, category TEXT, review_status TEXT NOT NULL DEFAULT 'unresolved', context TEXT, importance_score REAL NOT NULL DEFAULT 0, is_recurring INTEGER NOT NULL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, is_own_transfer INTEGER NOT NULL DEFAULT 0, group_id TEXT REFERENCES review_groups(id) ON DELETE SET NULL, dedupe_key TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual', account_tag TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, dedupe_key))`,
   `CREATE INDEX IF NOT EXISTS idx_transactions_review_queue ON transactions(user_id, review_status, occurred_at, importance_score DESC)`,
+  `CREATE TABLE IF NOT EXISTS payment_accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'bank', institution TEXT NOT NULL DEFAULT '', last_four TEXT NOT NULL DEFAULT '', aliases TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id,name))`,
+  `CREATE INDEX IF NOT EXISTS idx_payment_accounts_user_kind ON payment_accounts(user_id,kind,name)`,
   `CREATE TABLE IF NOT EXISTS daily_reviews (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'scheduled', unresolved_count INTEGER NOT NULL DEFAULT 0, unresolved_amount_paise INTEGER NOT NULL DEFAULT 0, notified_at TEXT, started_at TEXT, completed_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS notification_deliveries (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, review_date TEXT NOT NULL, status TEXT NOT NULL, provider_message_id TEXT, attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, review_date))`,
   `CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, metadata TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -96,6 +98,29 @@ async function upsertUser(db, user) {
   ]);
 }
 
+function mapPaymentAccount(row) { return { id: row.id, name: row.name, kind: row.kind, institution: row.institution || "", lastFour: row.last_four || "", aliases: JSON.parse(row.aliases || "[]"), updatedAt: timestamp(new Date(String(row.updated_at).replace(" ", "T") + (String(row.updated_at).includes("Z") ? "" : "Z"))) }; }
+
+async function listPaymentAccounts(db, userId) {
+  await db.prepare("INSERT OR IGNORE INTO payment_accounts (id,user_id,name,kind,institution) SELECT lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||substr(hex(randomblob(2)),2)||'-a'||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))),user_id,account_tag,CASE WHEN lower(account_tag) LIKE '%card%' THEN 'card' WHEN lower(account_tag) LIKE '%paytm%' OR lower(account_tag) LIKE '%wallet%' THEN 'wallet' ELSE 'bank' END,CASE WHEN lower(account_tag) LIKE '%icici%' THEN 'ICICI' WHEN lower(account_tag) LIKE '%hdfc%' THEN 'HDFC' WHEN lower(account_tag) LIKE '%axis%' THEN 'Axis' WHEN lower(account_tag) LIKE '%sbi%' THEN 'SBI' ELSE '' END FROM transactions WHERE user_id=? AND trim(account_tag)<>'' GROUP BY user_id,account_tag").bind(userId).run();
+  const rows = await db.prepare("SELECT * FROM payment_accounts WHERE user_id=? ORDER BY kind,name").bind(userId).all(); return rows.results.map(mapPaymentAccount);
+}
+
+async function savePaymentAccount(db, user, payload) {
+  const name = String(payload.name || "").trim().slice(0, 100); const kind = ["bank", "card", "wallet", "app", "cash", "other"].includes(payload.kind) ? payload.kind : "bank";
+  const institution = String(payload.institution || "").trim().slice(0, 80), lastFour = String(payload.lastFour || "").replace(/\D/g, "").slice(-4);
+  const aliases = [...new Set((Array.isArray(payload.aliases) ? payload.aliases : []).map((value) => String(value).trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+  if (!name) return json({ error: "Account name is required" }, 400);
+  const existing = await db.prepare("SELECT id FROM payment_accounts WHERE user_id=? AND lower(name)=lower(?)").bind(user.id, name).first(); const id = existing?.id || crypto.randomUUID();
+  await db.prepare("INSERT INTO payment_accounts (id,user_id,name,kind,institution,last_four,aliases) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,institution=excluded.institution,last_four=excluded.last_four,aliases=excluded.aliases,updated_at=CURRENT_TIMESTAMP").bind(id, user.id, name, kind, institution, lastFour, JSON.stringify(aliases)).run();
+  await audit(db, user.id, existing ? "payment_account.updated" : "payment_account.created", "payment_account", id); const row = await db.prepare("SELECT * FROM payment_accounts WHERE id=? AND user_id=?").bind(id, user.id).first(); return json({ account: mapPaymentAccount(row) }, existing ? 200 : 201);
+}
+
+async function deletePaymentAccount(db, user, id) {
+  const row = await db.prepare("SELECT name FROM payment_accounts WHERE id=? AND user_id=?").bind(id, user.id).first(); if (!row) return json({ error: "Payment account not found" }, 404);
+  const used = await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE user_id=? AND account_tag=?").bind(user.id, row.name).first(); if (Number(used?.count || 0)) return json({ error: "Move transactions to another account before deleting this one" }, 409);
+  await db.prepare("DELETE FROM payment_accounts WHERE id=? AND user_id=?").bind(id, user.id).run(); return json({ deleted: true });
+}
+
 function mapTransaction(row) {
   return {
     id: row.id,
@@ -173,6 +198,13 @@ async function authorizeMobile(env, user, url) {
 
 async function syncMobile(db, user, payload) {
   const incoming = Array.isArray(payload.transactions) ? payload.transactions.slice(0, 2000) : []; const aliases = {};
+  for (const account of (Array.isArray(payload.accounts) ? payload.accounts.slice(0, 200) : [])) {
+    const id = String(account.id || ""), name = String(account.name || "").trim().slice(0, 100); if (!/^[0-9a-f-]{36}$/i.test(id) || !name) continue;
+    const kind = ["bank", "card", "wallet", "app", "cash", "other"].includes(account.kind) ? account.kind : "bank"; const institution = String(account.institution || "").slice(0, 80), lastFour = String(account.lastFour || "").replace(/\D/g, "").slice(-4), accountAliases = JSON.stringify(Array.isArray(account.aliases) ? account.aliases.slice(0, 20) : []);
+    const named = await db.prepare("SELECT id FROM payment_accounts WHERE user_id=? AND lower(name)=lower(?)").bind(user.id, name).first();
+    if (named) await db.prepare("UPDATE payment_accounts SET kind=?,institution=?,last_four=?,aliases=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(kind, institution, lastFour, accountAliases, named.id, user.id).run();
+    else await db.prepare("INSERT INTO payment_accounts (id,user_id,name,kind,institution,last_four,aliases) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,institution=excluded.institution,last_four=excluded.last_four,aliases=excluded.aliases,updated_at=CURRENT_TIMESTAMP").bind(id, user.id, name, kind, institution, lastFour, accountAliases).run();
+  }
   for (const item of incoming) {
     const id = String(item.id || "");
     const parsedUpdatedAt = new Date(item.updatedAt || 0);
@@ -208,7 +240,7 @@ async function syncMobile(db, user, payload) {
     db.prepare("SELECT transaction_id,deleted_at FROM transaction_tombstones WHERE user_id=?").bind(user.id).all(),
   ]);
   const preferences = await getPreferences(db, user.id);
-  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases, preferences });
+  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), accounts: await listPaymentAccounts(db, user.id), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases, preferences });
 }
 
 async function getPreferences(db, userId) {
@@ -234,20 +266,22 @@ async function unresolvedSummary(db, userId, window = { clauses: [], bindings: [
 
 async function bootstrap(db, user, url) {
   const window = dateWindow(url); const windowPredicate = window.clauses.length ? ` AND ${window.clauses.join(" AND ")}` : "";
-  const [queue, preferences, summary, totals, allSummary] = await Promise.all([
+  const [queue, preferences, summary, totals, allSummary, accounts] = await Promise.all([
     db.prepare(`SELECT * FROM transactions WHERE user_id=? AND review_status='unresolved' AND is_reversed=0${windowPredicate} ORDER BY importance_score DESC,occurred_at DESC LIMIT 2000`).bind(user.id, ...window.bindings).all(),
     getPreferences(db, user.id), unresolvedSummary(db, user.id, window),
     db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE user_id=?${windowPredicate}`).bind(user.id, ...window.bindings).first(),
-    unresolvedSummary(db, user.id),
+    unresolvedSummary(db, user.id), listPaymentAccounts(db, user.id),
   ]);
   const today = localDate(preferences.timezone);
   await db.prepare("INSERT INTO daily_reviews (id,user_id,review_date,state,unresolved_count,unresolved_amount_paise) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,review_date) DO UPDATE SET unresolved_count=excluded.unresolved_count,unresolved_amount_paise=excluded.unresolved_amount_paise,updated_at=CURRENT_TIMESTAMP").bind(crypto.randomUUID(), user.id, today, allSummary.count ? "scheduled" : "not_required", allSummary.count, allSummary.amountPaise).run();
-  return { user, transactions: queue.results.map(mapTransaction), preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) }, window: { from: window.from, to: window.to } };
+  return { user, transactions: queue.results.map(mapTransaction), accounts, preferences, summary, totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0) }, window: { from: window.from, to: window.to } };
 }
 
 async function importTransactions(db, user, payload) {
   const transactions = Array.isArray(payload.transactions) ? payload.transactions.slice(0, 1000) : [];
   if (!transactions.length) return json({ error: "At least one transaction is required" }, 400);
+  const savedAccounts = new Set((await listPaymentAccounts(db, user.id)).map((account) => account.name));
+  if (transactions.some((item) => !item.accountTag || !savedAccounts.has(String(item.accountTag)))) return json({ error: "Choose a saved payment account for every statement before importing" }, 400);
   let imported = 0, verified = 0, duplicates = 0;
   for (const item of transactions) {
     const input = transactionInput(item); if (!input) continue;
@@ -374,19 +408,20 @@ async function setTransactionCategory(db, user, id, payload) {
 
 async function getInsights(db, user, url) {
   const window = dateWindow(url); const predicate = ["user_id=?", ...window.clauses].join(" AND "); const bindings = [user.id, ...window.bindings];
-  const [categories, days, status, totals, largest] = await Promise.all([
+  const [categories, days, status, totals, largest, accounts] = await Promise.all([
     db.prepare(`SELECT COALESCE(category,'Uncategorised') AS category,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE ${predicate} GROUP BY category ORDER BY amount DESC LIMIT 8`).bind(...bindings).all(),
     db.prepare(`SELECT substr(occurred_at,1,10) AS day,SUM(amount_paise) AS amount FROM transactions WHERE ${predicate} GROUP BY day ORDER BY day DESC LIMIT 366`).bind(...bindings).all(),
     db.prepare(`SELECT review_status AS status,COUNT(*) AS count FROM transactions WHERE ${predicate} GROUP BY review_status`).bind(...bindings).all(),
     db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount_paise),0) AS amount,COALESCE(AVG(amount_paise),0) AS average FROM transactions WHERE ${predicate}`).bind(...bindings).first(),
     db.prepare(`SELECT merchant,amount_paise,category FROM transactions WHERE ${predicate} ORDER BY amount_paise DESC LIMIT 1`).bind(...bindings).first(),
+    db.prepare(`SELECT CASE WHEN trim(account_tag)='' THEN 'No account' ELSE account_tag END AS name,SUM(amount_paise) AS amount,COUNT(*) AS count FROM transactions WHERE ${predicate} GROUP BY account_tag ORDER BY amount DESC LIMIT 12`).bind(...bindings).all(),
   ]);
   return json({
     categories: categories.results.map((row) => ({ name: row.category, amountPaise: Number(row.amount), count: Number(row.count) })),
     days: days.results.reverse().map((row) => ({ day: row.day, amountPaise: Number(row.amount) })),
     statuses: status.results.map((row) => ({ status: row.status, count: Number(row.count) })),
     totals: { count: Number(totals?.count || 0), amountPaise: Number(totals?.amount || 0), averagePaise: Number(totals?.average || 0) },
-    largest: largest ? { merchant: largest.merchant, amountPaise: Number(largest.amount_paise), category: largest.category } : null, window: { from: window.from, to: window.to },
+    largest: largest ? { merchant: largest.merchant, amountPaise: Number(largest.amount_paise), category: largest.category } : null, accounts: accounts.results.map((row) => ({ name: row.name, amountPaise: Number(row.amount), count: Number(row.count) })), window: { from: window.from, to: window.to },
   });
 }
 
@@ -545,6 +580,8 @@ async function handleApi(request, env, url) {
   if (request.method === "GET" && url.pathname === "/api/mobile/authorize") return authorizeMobile(env, user, url);
   if (request.method === "GET" && url.pathname === "/api/mobile/devices") { const rows = await env.DB.prepare("SELECT id,device_name,created_at,last_used_at FROM mobile_sessions WHERE user_id=? AND revoked_at IS NULL ORDER BY last_used_at DESC").bind(user.id).all(); return json({ devices: rows.results }); }
   if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user, url));
+  if (request.method === "GET" && url.pathname === "/api/payment-accounts") return json({ accounts: await listPaymentAccounts(env.DB, user.id) });
+  if (request.method === "POST" && url.pathname === "/api/payment-accounts") return savePaymentAccount(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/transactions") return listTransactions(env.DB, user, url);
   if (request.method === "DELETE" && url.pathname === "/api/transactions") return resetFinancialData(env.DB, user);
   if (request.method === "POST" && url.pathname === "/api/transactions") return createTransaction(env.DB, user, await request.json());
@@ -562,6 +599,8 @@ async function handleApi(request, env, url) {
     return json({ deleted: true });
   }
   const transactionMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
+  const accountMatch = url.pathname.match(/^\/api\/payment-accounts\/([^/]+)$/);
+  if (request.method === "DELETE" && accountMatch) return deletePaymentAccount(env.DB, user, accountMatch[1]);
   const categoryMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)\/category$/);
   if (request.method === "PATCH" && categoryMatch) return setTransactionCategory(env.DB, user, categoryMatch[1], await request.json());
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());

@@ -24,6 +24,23 @@ final class PaisaTransaction {
     }
 }
 
+@Model
+final class PaymentAccount {
+    @Attribute(.unique) var id: UUID
+    var name: String
+    var kind: String
+    var institution: String
+    var lastFour: String
+    var aliasesJSON: String
+    var updatedAt: Date
+
+    init(id: UUID = UUID(), name: String, kind: String = "bank", institution: String = "", lastFour: String = "", aliases: [String] = [], updatedAt: Date = .now) {
+        self.id = id; self.name = name; self.kind = kind; self.institution = institution; self.lastFour = String(lastFour.filter(\.isNumber).suffix(4)); self.aliasesJSON = (try? String(data: JSONEncoder().encode(aliases), encoding: .utf8)) ?? "[]"; self.updatedAt = updatedAt
+    }
+    var aliases: [String] { (try? JSONDecoder().decode([String].self, from: Data(aliasesJSON.utf8))) ?? [] }
+    var displayName: String { lastFour.isEmpty ? name : "\(name) · •••• \(lastFour)" }
+}
+
 enum PaisaTheme {
     private static func adaptive(light: UIColor, dark: UIColor) -> Color { Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light }) }
     static let canvas = adaptive(light: UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1), dark: UIColor(red: 16 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1))

@@ -24,7 +24,12 @@ final class SpeechInput: ObservableObject {
             task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in Task { @MainActor in if let result { self?.text = result.bestTranscription.formattedString }; if error != nil || result?.isFinal == true { self?.stop() } } }
         } catch { stop() }
     }
-    func stop() { if engine.isRunning { engine.stop(); engine.inputNode.removeTap(onBus: 0) }; request?.endAudio(); task?.cancel(); request = nil; task = nil; listening = false }
+    func stop(clear: Bool = false) {
+        let spokenText = text
+        if engine.isRunning { engine.stop(); engine.inputNode.removeTap(onBus: 0) }
+        request?.endAudio(); task?.finish(); request = nil; task = nil; listening = false
+        text = clear ? "" : spokenText
+    }
 
     private func requestSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
         await withCheckedContinuation { continuation in
@@ -40,9 +45,11 @@ struct ReviewView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var sync: SyncManager
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var allTransactions: [PaisaTransaction]
+    @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
     let transactions: [PaisaTransaction]
     @State private var originalCount: Int
     @State private var category = ""
+    @State private var accountTag = ""
     @State private var isSaving = false
     @State private var showBatch = false
     @State private var batchMessage = ""
@@ -83,6 +90,8 @@ struct ReviewView: View {
                     HStack { TextField("Type context", text: $speech.text, axis: .vertical).textFieldStyle(.roundedBorder); if speech.listening { ProgressView() } }
                     LabeledContent("Category") { PaisaCategoryField(category: $category, suggestions: PaisaCategories.suggestions(from: allTransactions)) }
                         .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    LabeledContent("Payment account") { Picker("Payment account", selection: $accountTag) { Text("None").tag(""); ForEach(paymentAccounts) { Text($0.displayName).tag($0.name) } }.labelsHidden() }
+                        .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 12))
                     ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(PaisaCategories.defaults.prefix(7), id: \.self) { value in Button(value) { category = value }.buttonStyle(.bordered).tint(category == value ? PaisaTheme.forest : PaisaTheme.muted).controlSize(.small) } } }
                 }
                 Button { speech.stop(); editing = item } label: { Label("Edit merchant, amount, date or time", systemImage: "pencil") }.buttonStyle(.bordered).tint(PaisaTheme.forest)
@@ -117,15 +126,16 @@ struct ReviewView: View {
     }
 
     private func prepareCurrent() {
-        speech.stop(); speech.text = ""; cardOffset = .zero
+        speech.stop(clear: true); cardOffset = .zero
         category = current?.category.localizedCaseInsensitiveCompare("Uncategorised") == .orderedSame ? "" : (current?.category ?? "")
+        accountTag = current?.accountTag ?? ""
     }
 
     private func save(_ item: PaisaTransaction, status: String) async {
         guard !isSaving else { return }; isSaving = true; speech.stop()
         history.append(ReviewSnapshot(item: item))
         if !speech.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { item.note = speech.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-        item.category = PaisaCategories.savedValue(category); item.reviewStatus = status; item.updatedAt = .now
+        item.category = PaisaCategories.savedValue(category); item.accountTag = accountTag; item.reviewStatus = status; item.updatedAt = .now
         try? context.save(); browsingIndex = min(browsingIndex, max(0, remaining.count - 1)); isSaving = false
         Task { await sync.syncIfConnected(context: context) }
     }
@@ -139,12 +149,12 @@ struct ReviewView: View {
 
     private func restorePrevious() {
         guard let snapshot = history.popLast(), let item = allTransactions.first(where: { $0.id == snapshot.id }) else { return }
-        item.reviewStatus = snapshot.status; item.category = snapshot.category; item.note = snapshot.note; item.updatedAt = .now
+        item.reviewStatus = snapshot.status; item.category = snapshot.category; item.accountTag = snapshot.accountTag; item.note = snapshot.note; item.updatedAt = .now
         try? context.save(); Task { await sync.syncIfConnected(context: context) }
     }
 }
 
-private struct ReviewSnapshot { let id: UUID; let status: String; let category: String; let note: String; init(item: PaisaTransaction) { id = item.id; status = item.reviewStatus; category = item.category; note = item.note } }
+private struct ReviewSnapshot { let id: UUID; let status: String; let category: String; let accountTag: String; let note: String; init(item: PaisaTransaction) { id = item.id; status = item.reviewStatus; category = item.category; accountTag = item.accountTag; note = item.note } }
 
 private struct MobileBatchDecision { let transaction: PaisaTransaction; let category: String? }
 

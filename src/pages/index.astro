@@ -72,6 +72,7 @@ import DateWindow from "../components/DateWindow.astro";
           <details class="review-details"><summary>Edit payment details</summary><div class="review-edit-grid">
             <label><span>Merchant</span><input id="review-edit-merchant" maxlength="160" /></label><label><span>Amount (₹)</span><input id="review-edit-amount" type="number" min="0.01" step="0.01" /></label>
             <label><span>Date</span><input id="review-edit-date" type="date" /></label><label><span>Exact time <small>(optional)</small></span><input id="review-edit-time" type="time" /></label>
+            <label><span>Payment account</span><select id="review-edit-account"><option value="">No payment account</option></select></label>
           </div></details>
           <div class="prompt"><span>✦</span><p><strong id="review-question">Add any context that will help later.</strong><small id="review-hint">A category is enough; a short note makes insights clearer.</small></p></div>
           <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
@@ -141,6 +142,6 @@ import DateWindow from "../components/DateWindow.astro";
 
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
-    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/client.js?v=19"></script>
+    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/client.js?v=20"></script>
   </body>
 </html>

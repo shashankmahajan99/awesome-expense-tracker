@@ -8,6 +8,11 @@ struct SharedReceipt: Codable, Identifiable {
     let note: String
     let occurredAt: Date
     let createdAt: Date
+    let accountTag: String?
+
+    init(id: UUID, merchant: String, amount: Double, category: String, note: String, occurredAt: Date, createdAt: Date, accountTag: String? = nil) {
+        self.id = id; self.merchant = merchant; self.amount = amount; self.category = category; self.note = note; self.occurredAt = occurredAt; self.createdAt = createdAt; self.accountTag = accountTag
+    }
 }
 
 enum SharedInbox {
@@ -45,6 +50,30 @@ enum SharedInbox {
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+    }
+}
+
+struct SharedPaymentAccount: Codable, Identifiable, Hashable {
+    let id: UUID
+    let name: String
+    let kind: String
+    let institution: String
+    let lastFour: String
+
+    var displayName: String { lastFour.isEmpty ? name : "\(name) · •••• \(lastFour)" }
+}
+
+enum SharedPaymentAccountDirectory {
+    private static let key = "paisa.payment-accounts"
+    private static var defaults: UserDefaults? { UserDefaults(suiteName: SharedInbox.appGroupIdentifier) }
+
+    static func save(_ accounts: [SharedPaymentAccount]) {
+        defaults?.set(try? JSONEncoder().encode(accounts), forKey: key)
+    }
+
+    static func all() -> [SharedPaymentAccount] {
+        guard let data = defaults?.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([SharedPaymentAccount].self, from: data)) ?? []
     }
 }
 
