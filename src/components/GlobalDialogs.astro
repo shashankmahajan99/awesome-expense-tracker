@@ -1,0 +1,23 @@
+<dialog class="sheet-dialog preferences-dialog" id="global-preferences-dialog">
+  <div class="sheet-top"><div><span class="eyebrow">APP PREFERENCES</span><h2>Make Paisa Inbox yours.</h2></div><button type="button" data-close-global aria-label="Close">×</button></div>
+  <p class="sheet-intro">Theme, reminders, privacy, and companion controls apply without interrupting the page you are on.</p>
+  <form id="global-preferences-form">
+    <div class="preference-grid">
+      <label><span>Appearance</span><select name="appearance"><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      <label><span>Preferred review time</span><input name="reviewTime" type="time" value="21:30" /></label>
+      <label><span>Reminder style</span><select name="personality"><option>Gentle</option><option selected>Balanced</option><option>Strict</option></select></label>
+      <label><span>Important payment</span><select name="importantAmount"><option value="1000">Above ₹1,000</option><option value="2000">Above ₹2,000</option><option value="5000">Above ₹5,000</option></select></label>
+    </div>
+    <label class="toggle-row ai-consent"><span><strong>ChatGPT companion features</strong><small>Off by default. ChatGPT currently verifies identity only. No transaction data is sent.</small></span><input name="companionConsent" type="checkbox" /><i></i></label>
+    <div class="preference-note"><span>i</span><p><strong>Your financial engines stay inside Paisa Inbox.</strong><small>Statement parsing, matching, categories, review, sync, and insights do not require ChatGPT.</small></p></div>
+    <div class="sheet-actions"><button class="secondary-button" type="button" data-close-global>Cancel</button><button class="primary-button" type="submit">Save preferences</button></div>
+  </form>
+</dialog>
+<dialog class="sheet-dialog profile-dialog" id="global-profile-dialog">
+  <div class="sheet-top"><div><span class="eyebrow">PROFILE</span><h2>Your Paisa Inbox account.</h2></div><button type="button" data-close-global aria-label="Close">×</button></div>
+  <div class="profile-summary"><span data-profile-initials>PI</span><div><strong data-profile-name>My account</strong><small data-profile-email>Private account</small></div></div>
+  <p class="sheet-intro">ChatGPT verifies who you are for secure sign-in. It is not used to analyse your transactions.</p>
+  <div class="profile-links"><a href="/connect-device">Connected devices</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></div>
+</dialog>
+<div class="sidebar-backdrop" data-sidebar-backdrop hidden></div>
+<script is:inline src="/app-shell.js?v=1"></script>

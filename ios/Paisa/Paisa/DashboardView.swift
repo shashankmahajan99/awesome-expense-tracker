@@ -24,7 +24,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo)
+                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo, title: "Dashboard activity")
                 hero
                 metrics
                 inbox

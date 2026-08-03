@@ -3,6 +3,7 @@ import BaseHead from "../components/BaseHead.astro";
 import AppSidebar from "../components/AppSidebar.astro";
 import AppTopbar from "../components/AppTopbar.astro";
 import DateWindow from "../components/DateWindow.astro";
+import QuickReview from "../components/QuickReview.astro";
 ---
 <!doctype html>
 <html lang="en">
@@ -14,21 +15,22 @@ import DateWindow from "../components/DateWindow.astro";
         <AppTopbar title="Insights" subtitle="PATTERNS, NOT SPREADSHEETS" action="none" />
         <section class="workspace-page">
           <div class="page-intro"><div><span class="eyebrow">YOUR FINANCIAL PICTURE</span><h2>See what changed and why.</h2><p>Insights use your real transaction data. Add context during review to make every pattern more useful.</p></div><a class="secondary-button" href="/transactions">Manage transactions →</a></div>
-          <DateWindow id="insights-date-window" />
+          <DateWindow id="insights-date-window" label="Insight period" />
           <section class="insight-metrics">
             <article class="panel"><span class="eyebrow">TOTAL TRACKED</span><strong id="insight-total"><span class="skeleton-line metric-line"></span></strong><small id="insight-count"><span class="skeleton-line medium"></span></small></article>
             <article class="panel"><span class="eyebrow">AVERAGE PAYMENT</span><strong id="insight-average"><span class="skeleton-line metric-line"></span></strong><small>Across all imported payments</small></article>
             <article class="panel"><span class="eyebrow">UNDERSTOOD</span><strong id="insight-understood"><span class="skeleton-line metric-line"></span></strong><small id="insight-unresolved"><span class="skeleton-line medium"></span></small></article>
           </section>
           <section class="insight-grid">
-            <article class="panel insight-chart"><div class="panel-heading"><div><span class="eyebrow">LAST 14 ACTIVE DAYS</span><h3>Spending rhythm</h3></div></div><div class="large-bars insight-skeleton-bars" id="daily-bars" aria-busy="true">{[34,58,45,72,51,82,63].map((height) => <div aria-hidden="true"><small class="skeleton-line tiny"></small><i style={`height:${height}%`}></i><span class="skeleton-line tiny"></span></div>)}</div></article>
+            <article class="panel insight-chart"><div class="panel-heading"><div><span class="eyebrow" id="insight-period-label">SELECTED PERIOD</span><h3>Spending rhythm</h3></div></div><div class="large-bars insight-skeleton-bars" id="daily-bars" aria-busy="true">{[34,58,45,72,51,82,63].map((height) => <div aria-hidden="true"><small class="skeleton-line tiny"></small><i style={`height:${height}%`}></i><span class="skeleton-line tiny"></span></div>)}</div></article>
             <article class="panel"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Categories</h3></div></div><div class="insight-categories" id="insight-categories" aria-busy="true">{[1,2,3,4].map(() => <div class="insight-category insight-category-skeleton" aria-hidden="true"><div><span class="skeleton-line medium"></span><span class="skeleton-line short"></span></div><div><i></i></div></div>)}</div></article>
-            <article class="panel review-health"><div class="panel-heading"><div><span class="eyebrow">DATA QUALITY</span><h3>Review health</h3></div></div><div id="review-health" aria-busy="true">{[1,2,3].map(() => <div class="review-health-skeleton" aria-hidden="true"><span class="skeleton-line medium"></span><span class="skeleton-line short"></span></div>)}</div><a class="review-button" href="/#inbox">Review unresolved payments <span>→</span></a></article>
+            <article class="panel review-health"><div class="panel-heading"><div><span class="eyebrow">DATA QUALITY</span><h3>Review health</h3></div></div><div id="review-health" aria-busy="true">{[1,2,3].map(() => <div class="review-health-skeleton" aria-hidden="true"><span class="skeleton-line medium"></span><span class="skeleton-line short"></span></div>)}</div><button class="review-button" type="button" data-open-quick-review>Review unresolved payments <span>→</span></button></article>
           </section>
         </section>
         <footer><span>Better context produces better insights.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
       </main>
     </div>
+    <QuickReview />
     <div class="toast" role="status" aria-live="polite"><span>!</span><p><strong>Couldn’t load insights</strong><small>Please try again</small></p></div>
     <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/insights.js?v=17"></script>
   </body>

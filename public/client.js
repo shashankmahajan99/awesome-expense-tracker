@@ -92,7 +92,16 @@ function syncQueue() {
     chip.append(dot, `${item.merchant} · ${item.amount}`); return chip;
   }));
   $(".empty-inbox").hidden = Boolean(items.length);
+  arrangeDashboardPanels();
 }
+
+function arrangeDashboardPanels() {
+  const side = $("#dashboard-side"), bottom = $("#activity"), categories = $("#dashboard-categories-card"), focus = $("#dashboard-focus-card");
+  if (!side || !bottom || !categories || !focus) return;
+  const useSide = matchMedia("(min-width: 1051px)").matches && items.length >= 4;
+  (useSide ? side : bottom).append(categories, focus); bottom.hidden = useSide;
+}
+addEventListener("resize", arrangeDashboardPanels);
 
 function renderReview() {
   if (!items.length) {
@@ -109,6 +118,8 @@ function renderReview() {
   $("#review-meta").textContent = item.meta.toUpperCase(); $("#review-amount").textContent = item.amount; $("#review-merchant").textContent = item.merchant;
   $("#review-question").textContent = item.merchant === "Indian Oil" ? "Was this fuel or travel?" : `What should you remember about ${item.merchant}?`;
   $("#review-hint").textContent = item.category && item.category.toLowerCase() !== "uncategorised" ? `We suggested ${item.category}. Change it if needed, then add an optional note.` : "Choose a category. Add a note only if it will help you understand this later."; $("#answer-input").value = item.context || "";
+  const date = new Date(item.occurredAt), local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
+  $("#review-edit-merchant").value = item.merchant; $("#review-edit-amount").value = String(item.amountPaise / 100); $("#review-edit-date").value = local.slice(0, 10); $("#review-edit-time").value = item.timeVerified ? local.slice(11, 16) : "";
   populateReviewCategories(item.category);
 }
 
@@ -132,7 +143,11 @@ async function resolveCurrent(action, message, context = "") {
   if (!item || reviewSaving) return;
   reviewSaving = true; const button = action === "explain" ? $("#submit-answer") : $(`[data-action="${action}"]`); setButtonLoading(button, true);
   try {
-    const category = reviewCategory(); await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
+    const category = reviewCategory(); const merchant = $("#review-edit-merchant").value.trim(); const amount = Number($("#review-edit-amount").value); const occurredDate = $("#review-edit-date").value; const occurredTime = $("#review-edit-time").value;
+    if (!merchant || !amount || !occurredDate) throw new Error("Merchant, amount, and date are required");
+    const occurredAt = new Date(`${occurredDate}T${occurredTime || "12:00"}:00`).toISOString();
+    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PUT", body: JSON.stringify({ merchant, amount, occurredAt, timeVerified: Boolean(occurredTime), category, context, description: item.description || "", accountTag: item.accountTag || "", reviewStatus: item.reviewStatus }) });
+    await api(`/api/transactions/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ action, context, category }) }); item.category = category;
     items.splice(current, 1); reviewedCount++; syncQueue();
     showToast(message, items.length ? `${items.length} payment${items.length === 1 ? "" : "s"} still need context` : "Today’s review is complete");
     renderReview();
@@ -369,6 +384,9 @@ $$('[data-open-review]').forEach((button) => button.addEventListener("click", ()
 $$('[data-close-review]').forEach((button) => button.addEventListener("click", () => { stopVoice(); dialogs.review.close(); }));
 $("#review-previous")?.addEventListener("click", () => moveReview(-1));
 $("#review-next")?.addEventListener("click", () => moveReview(1));
+let reviewDragStart = null;
+dialogs.review?.addEventListener("pointerdown", (event) => { if (event.target.closest("button,input,select,textarea,summary")) return; reviewDragStart = event.clientX; });
+dialogs.review?.addEventListener("pointerup", (event) => { if (reviewDragStart === null) return; const delta = event.clientX - reviewDragStart; reviewDragStart = null; if (delta < -70) moveReview(1); else if (delta > 70) moveReview(-1); });
 $("#submit-answer")?.addEventListener("click", () => resolveCurrent("explain", "Review saved", $("#answer-input").value.trim()));
 $("#answer-input")?.addEventListener("keydown", (event) => { if (event.key === "Enter") resolveCurrent("explain", "Review saved", event.currentTarget.value.trim()); });
 dialogs.review?.addEventListener("keydown", (event) => { if (event.target?.matches("input,select,textarea")) return; if (event.key === "ArrowLeft") moveReview(-1); if (event.key === "ArrowRight") moveReview(1); });
@@ -399,7 +417,6 @@ $("#batch-submit")?.addEventListener("click", async () => {
   finally { batchMatching = false; setButtonLoading($("#batch-submit"), false); $("#batch-input").disabled = false; }
 });
 
-$$('[data-open-preferences]').forEach((button) => button.addEventListener("click", () => { populatePreferences(preferences); dialogs.preferences.showModal(); $(".sidebar")?.classList.remove("open"); }));
 $$('[data-close-preferences]').forEach((button) => button.addEventListener("click", () => dialogs.preferences.close()));
 $("#preferences-form")?.addEventListener("submit", async (event) => {
   event.preventDefault(); const data = new FormData(event.currentTarget);

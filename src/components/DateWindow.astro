@@ -1,9 +1,9 @@
 ---
-interface Props { id: string }
-const { id } = Astro.props;
+interface Props { id: string; label?: string }
+const { id, label = "Activity period" } = Astro.props;
 ---
 <div class="date-window" id={id} data-date-window>
-  <label class="date-window-preset"><span>Period</span><select data-window-select><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="month">This month</option><option value="year">This year</option><option value="custom">Custom</option></select></label>
+  <label class="date-window-preset"><span>{label}</span><select data-window-select><option value="all">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="month">This month</option><option value="year">This year</option><option value="custom">Custom dates</option></select></label>
   <label><span>From</span><input type="date" data-window-from aria-label="From date" /></label>
   <label><span>To</span><input type="date" data-window-to aria-label="To date" /></label>
 </div>

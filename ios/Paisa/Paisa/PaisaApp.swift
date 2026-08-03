@@ -19,6 +19,7 @@ struct RootView: View {
     @EnvironmentObject private var sync: SyncManager
     @EnvironmentObject private var notifications: NotificationManager
     @State private var selectedTab: Tab = .today
+    @AppStorage("paisaAppearance") private var appearance = "system"
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { DashboardView() }
@@ -35,7 +36,7 @@ struct RootView: View {
                 .tag(Tab.settings)
         }
         .tint(PaisaTheme.forest)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .task { await importSharesAndSync() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await importSharesAndSync() } } }
         .onOpenURL { url in

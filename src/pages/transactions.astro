@@ -16,10 +16,10 @@ import DateWindow from "../components/DateWindow.astro";
           <div class="page-intro"><div><span class="eyebrow">YOUR COMPLETE LEDGER</span><h2>Every payment, under your control.</h2><p>Search, edit, categorise, review, or remove a transaction. Changes update your dashboard and insights immediately.</p></div><a class="secondary-button" href="/">← Back to dashboard</a></div>
           <section class="panel ledger-panel">
             <div class="ledger-toolbar">
-              <label class="search-field"><span>⌕</span><input id="transaction-search" type="search" placeholder="Search merchant, note, or context" /></label>
-              <select id="status-filter" aria-label="Filter by review status"><option value="all">All statuses</option><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred</option></select>
-              <select id="category-filter" aria-label="Filter by category"><option value="all">All categories</option></select>
-              <DateWindow id="transactions-date-window" />
+              <label class="search-field"><span aria-hidden="true">⌕</span><input id="transaction-search" type="search" placeholder="Search merchant, note, or context" /></label>
+              <label class="filter-field"><span>Review state</span><select id="status-filter"><option value="all">Any review state</option><option value="unresolved">Needs review</option><option value="explained">Explained</option><option value="known">Known / repeat</option><option value="deferred">Deferred by me</option></select></label>
+              <label class="filter-field"><span>Category</span><select id="category-filter"><option value="all">Any category</option></select></label>
+              <DateWindow id="transactions-date-window" label="Transaction period" />
             </div>
             <div class="ledger-summary"><strong id="ledger-count"><span class="skeleton-line medium"></span></strong><span id="ledger-total"><span class="skeleton-line short"></span></span></div>
             <div class="bulk-toolbar" id="bulk-toolbar" hidden><strong><span id="selected-count">0</span> selected</strong><button class="danger-button" id="delete-selected" type="button">Delete selected</button><button class="secondary-button" id="clear-selection" type="button">Cancel</button></div>
@@ -59,6 +59,6 @@ import DateWindow from "../components/DateWindow.astro";
       </form>
     </dialog>
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Saved</strong><small>Your ledger is up to date</small></p></div>
-    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/transactions.js?v=17"></script>
+    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/transactions.js?v=18"></script>
   </body>
 </html>

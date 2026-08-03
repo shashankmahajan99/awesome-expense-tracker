@@ -38,7 +38,7 @@ struct TransactionsView: View {
     private var filtered: [PaisaTransaction] { transactions.filter { dateWindow.contains($0.occurredAt, customFrom: customFrom, customTo: customTo) && (search.isEmpty || "\($0.merchant) \($0.category) \($0.accountTag) \($0.note)".localizedCaseInsensitiveContains(search)) } }
     var body: some View {
         List {
-            Section { PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo) }
+            Section { PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo, title: "Transaction period") }
             ForEach(filtered) { item in
                 HStack(spacing: 8) {
                     if selecting { Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selectedIDs.contains(item.id) ? PaisaTheme.forest : PaisaTheme.muted) }
@@ -113,7 +113,7 @@ struct InsightsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 PaisaEyebrow(text: "Spending snapshot")
-                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo)
+                PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo, title: "Insight period")
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Total tracked").font(.subheadline).foregroundStyle(.white.opacity(0.7))
                     Text(PaisaFormat.amount(total)).font(.system(size: 38, weight: .bold, design: .rounded)).foregroundStyle(.white)
@@ -145,9 +145,12 @@ struct SettingsView: View {
     private let webURL = URL(string: "https://paisa-daily-inbox.shashankmahajan.chatgpt.site")!
     @State private var confirmDelete = false
     @State private var dataMessage = ""
+    @AppStorage("paisaAppearance") private var appearance = "system"
+    @AppStorage("paisaCompanionConsent") private var companionConsent = false
 
     var body: some View {
         Form {
+            Section("Appearance") { Picker("Theme", selection: $appearance) { Text("Use device setting").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") } }
             Section("Cloud sync") {
                 Label(sync.status, systemImage: sync.connected ? "checkmark.icloud" : "icloud.slash")
                 if sync.connected {
@@ -164,7 +167,7 @@ struct SettingsView: View {
                     }
                     Button("Disconnect this iPhone", role: .destructive) { Task { await sync.disconnect() } }.disabled(sync.isWorking)
                 } else {
-                    Button("Connect with ChatGPT") { Task { await sync.beginPairing() } }.disabled(sync.isWorking)
+                    Button("Sign in to sync") { Task { await sync.beginPairing() } }.disabled(sync.isWorking)
                 }
                 if sync.isWorking && sync.syncTotal == 0 { ProgressView("Checking Paisa Inbox…") }
             }
@@ -197,6 +200,7 @@ struct SettingsView: View {
                 if !sync.connected { Text("Connect to Paisa Inbox before deleting so the same data is removed from every device.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !dataMessage.isEmpty { Text(dataMessage).font(.caption).foregroundStyle(PaisaTheme.muted) }
             }
+            Section("ChatGPT companion") { Toggle("Allow optional companion features", isOn: $companionConsent); Text("Off by default. ChatGPT is currently used only to verify your identity. Statement parsing, categories, review, sync, and insights stay in Paisa Inbox and do not send transaction data to ChatGPT.").font(.caption).foregroundStyle(PaisaTheme.muted) }
         }
         .scrollContentBackground(.hidden)
         .background(PaisaTheme.canvas)

@@ -16,7 +16,7 @@ async function load() {
   showLoading();
   try {
     const query = window.PaisaDateWindow.query($("#insights-date-window")).toString(); const suffix = query ? `?${query}` : "";
-    const [data, bootstrap] = await Promise.all([api(`/api/insights${suffix}`), api(`/api/bootstrap${suffix}`)]);
+    const [data, bootstrap] = await Promise.all([api(`/api/insights${suffix}`), api(`/api/bootstrap${suffix}`)]); const period = $("#insights-date-window [data-window-select]"); $("#insight-period-label").textContent = (period?.options[period.selectedIndex]?.textContent || "Selected period").toUpperCase();
     $("#insight-total").textContent = formatter.format(data.totals.amountPaise / 100); $("#insight-count").textContent = `${data.totals.count} payments tracked`;
     $("#insight-average").textContent = formatter.format(data.totals.averagePaise / 100);
     const unresolved = data.statuses.find((item) => item.status === "unresolved")?.count || 0; const understood = data.totals.count ? Math.round(((data.totals.count - unresolved) / data.totals.count) * 100) : 100;
@@ -44,4 +44,4 @@ async function load() {
     const toast = $(".toast"); toast.querySelector("small").textContent = error.message; toast.classList.add("visible");
   }
 }
-$("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open")); window.PaisaDateWindow.setup($("#insights-date-window"), () => load());
+window.PaisaDateWindow.setup($("#insights-date-window"), () => load());

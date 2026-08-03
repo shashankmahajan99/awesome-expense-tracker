@@ -48,9 +48,11 @@ struct ReviewView: View {
     @State private var batchMessage = ""
     @State private var cardOffset: CGSize = .zero
     @State private var history: [ReviewSnapshot] = []
+    @State private var browsingIndex = 0
+    @State private var editing: PaisaTransaction?
     @StateObject private var speech = SpeechInput()
     private var remaining: [PaisaTransaction] { transactions.filter { !$0.isDeleted && $0.reviewStatus == "unresolved" } }
-    private var current: PaisaTransaction? { remaining.first }
+    private var current: PaisaTransaction? { remaining.indices.contains(browsingIndex) ? remaining[browsingIndex] : remaining.first }
 
     init(transactions: [PaisaTransaction]) {
         self.transactions = transactions
@@ -68,12 +70,12 @@ struct ReviewView: View {
                     Text(PaisaFormat.amount(item.amount)).font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(PaisaTheme.ink)
                     Text(item.merchant).font(.title2.bold()).foregroundStyle(PaisaTheme.ink)
                     Text([item.accountTag, PaisaFormat.transactionDate(item.occurredAt, timeVerified: item.timeVerified)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(PaisaTheme.muted)
-                    HStack { Label("Later", systemImage: "arrow.left").foregroundStyle(.orange).opacity(cardOffset.width < -30 ? 1 : 0.35); Spacer(); Label("Understood", systemImage: "arrow.right").foregroundStyle(PaisaTheme.forest).opacity(cardOffset.width > 30 ? 1 : 0.35) }.font(.caption.bold()).padding(.top, 16)
+                    HStack { Label("Previous", systemImage: "arrow.right").foregroundStyle(PaisaTheme.muted).opacity(cardOffset.width > 30 ? 1 : 0.35); Spacer(); Label("Next", systemImage: "arrow.left").foregroundStyle(PaisaTheme.forest).opacity(cardOffset.width < -30 ? 1 : 0.35) }.font(.caption.bold()).padding(.top, 16)
                 }
                 .offset(x: cardOffset.width).rotationEffect(.degrees(Double(cardOffset.width / 28)))
                 .gesture(DragGesture().onChanged { cardOffset = $0.translation }.onEnded { value in
-                    if value.translation.width > 110 { Task { await swipe(item, status: "explained") } }
-                    else if value.translation.width < -110 { Task { await swipe(item, status: "deferred") } }
+                    if value.translation.width > 80 { moveCard(-1) }
+                    else if value.translation.width < -80 { moveCard(1) }
                     else { withAnimation(.spring) { cardOffset = .zero } }
                 })
                 VStack(alignment: .leading, spacing: 8) {
@@ -83,6 +85,7 @@ struct ReviewView: View {
                         .padding(12).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 12))
                     ScrollView(.horizontal, showsIndicators: false) { HStack { ForEach(PaisaCategories.defaults.prefix(7), id: \.self) { value in Button(value) { category = value }.buttonStyle(.bordered).tint(category == value ? PaisaTheme.forest : PaisaTheme.muted).controlSize(.small) } } }
                 }
+                Button { speech.stop(); editing = item } label: { Label("Edit merchant, amount, date or time", systemImage: "pencil") }.buttonStyle(.bordered).tint(PaisaTheme.forest)
                 Button { Task { await speech.toggle() } } label: {
                     HStack { Image(systemName: speech.listening ? "stop.fill" : "mic.fill"); Text(speech.listening ? "Stop speaking" : "Speak instead"); Spacer(); if speech.listening { ProgressView().tint(.white) } }
                         .fontWeight(.semibold).padding(.horizontal, 16).frame(height: 48).background(speech.listening ? Color.red : PaisaTheme.forest, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
@@ -91,13 +94,7 @@ struct ReviewView: View {
                     HStack { Spacer(); if isSaving { ProgressView().tint(PaisaTheme.forest) } else { Text("Save & review next"); Image(systemName: "arrow.right") }; Spacer() }
                         .frame(height: 50).background(PaisaTheme.gold, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(PaisaTheme.forest).fontWeight(.bold)
                 }.buttonStyle(.plain).disabled(isSaving)
-                HStack {
-                    Button { Task { await swipe(item, status: "deferred") } } label: { Label("Later", systemImage: "arrow.left") }
-                    Spacer()
-                    Button { Task { await swipe(item, status: "known") } } label: { Label("Known", systemImage: "repeat") }
-                    Spacer()
-                    Button { Task { await swipe(item, status: "explained") } } label: { Label("Understood", systemImage: "arrow.right") }
-                }.buttonStyle(.bordered).disabled(isSaving)
+                HStack(spacing: 10) { Button("Review later") { Task { await save(item, status: "deferred") } }.buttonStyle(.bordered); Button("Known repeat") { Task { await save(item, status: "known") } }.buttonStyle(.bordered); Button("Save") { Task { await save(item, status: "explained") } }.buttonStyle(.borderedProminent).tint(PaisaTheme.forest) }.disabled(isSaving)
                 Button { speech.stop(); showBatch = true } label: { Label("Explain several together", systemImage: "text.badge.checkmark") }.fontWeight(.semibold).padding(.top, 4)
                 if !batchMessage.isEmpty { Text(batchMessage).font(.caption).foregroundStyle(PaisaTheme.forest).multilineTextAlignment(.center) }
             } else {
@@ -113,6 +110,7 @@ struct ReviewView: View {
             ToolbarItem(placement: .topBarTrailing) { Button { restorePrevious() } label: { Image(systemName: "arrow.uturn.backward") }.disabled(history.isEmpty || isSaving).accessibilityLabel("Previous payment") }
         }
         .sheet(isPresented: $showBatch) { NavigationStack { MobileBatchReviewView(transactions: remaining) { count in batchMessage = "Explained \(count) payment\(count == 1 ? "" : "s")." } } }
+        .sheet(item: $editing) { TransactionEditor(item: $0) }
         .onAppear { prepareCurrent() }
         .onChange(of: current?.id) { _, _ in prepareCurrent() }
         .onDisappear { speech.stop() }
@@ -128,12 +126,15 @@ struct ReviewView: View {
         history.append(ReviewSnapshot(item: item))
         if !speech.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { item.note = speech.text.trimmingCharacters(in: .whitespacesAndNewlines) }
         item.category = PaisaCategories.savedValue(category); item.reviewStatus = status; item.updatedAt = .now
-        try? context.save(); await sync.syncIfConnected(context: context); isSaving = false
+        try? context.save(); browsingIndex = min(browsingIndex, max(0, remaining.count - 1)); isSaving = false
+        Task { await sync.syncIfConnected(context: context) }
     }
 
-    private func swipe(_ item: PaisaTransaction, status: String) async {
-        withAnimation(.easeIn(duration: 0.18)) { cardOffset.width = status == "deferred" ? -520 : 520 }
-        try? await Task.sleep(for: .milliseconds(180)); await save(item, status: status)
+    private func moveCard(_ direction: Int) {
+        guard !isSaving else { return }
+        let next = max(0, min(remaining.count - 1, browsingIndex + direction))
+        withAnimation(.easeOut(duration: 0.1)) { cardOffset.width = direction > 0 ? -360 : 360 }
+        browsingIndex = next; prepareCurrent()
     }
 
     private func restorePrevious() {

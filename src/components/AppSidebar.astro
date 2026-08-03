@@ -1,19 +1,24 @@
 ---
 interface Props { active?: "overview" | "inbox" | "transactions" | "insights"; }
 const { active = "overview" } = Astro.props;
+import AppIcon from "./AppIcon.astro";
+import GlobalDialogs from "./GlobalDialogs.astro";
 ---
 <aside class="sidebar" aria-label="Primary navigation">
   <a class="brand" href="/" aria-label="Paisa Inbox dashboard"><span class="brand-mark">P</span><span>Paisa Inbox</span></a>
   <nav>
-    <a class:list={["nav-link", { active: active === "overview" }]} href="/"><span>⌂</span>Dashboard</a>
-    <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><span>✦</span>Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>
-    <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><span>↕</span>Transactions</a>
-    <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><span>⌁</span>Insights</a>
-    <a class="nav-link" href="/connect-device"><span>▯</span>Connect iPhone</a>
-    <a class="nav-link" href="/?preferences=1"><span>⚙</span>Preferences</a>
+    <a class:list={["nav-link", { active: active === "overview" }]} href="/"><AppIcon name="dashboard" />Dashboard</a>
+    <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><AppIcon name="inbox" />Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>
+    <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><AppIcon name="transactions" />Transactions</a>
+    <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><AppIcon name="insights" />Insights</a>
+    <a class="nav-link" href="/connect-device"><AppIcon name="phone" />Connect iPhone</a>
+    <button class="nav-link nav-button" type="button" data-open-preferences><AppIcon name="settings" />Preferences</button>
+    <a class="nav-link" href="/privacy"><AppIcon name="privacy" />Privacy</a>
+    <a class="nav-link" href="/terms"><AppIcon name="terms" />Terms</a>
   </nav>
   <div class="sidebar-bottom">
     <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>Build your streak</strong><p>A short daily review keeps insights accurate.</p><div class="streak-days" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
-    <a class="profile" href="/?preferences=1" aria-label="Open account preferences"><span>SM</span><span><strong data-profile-name>My account</strong><small data-profile-email>Private account</small></span><b>›</b></a>
+    <button class="profile" type="button" data-open-profile aria-label="Open profile"><span data-profile-initials>PI</span><span><strong data-profile-name>My account</strong><small data-profile-email>Private account</small></span><b>›</b></button>
   </div>
 </aside>
+<GlobalDialogs />

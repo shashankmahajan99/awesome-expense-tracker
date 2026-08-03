@@ -1,0 +1,9 @@
+<dialog class="sheet-dialog quick-review-dialog" id="quick-review-dialog">
+  <div class="sheet-top"><div><span class="eyebrow">DAILY REVIEW</span><h2>Review without losing your place.</h2></div><button type="button" data-close-quick-review aria-label="Close">×</button></div>
+  <div id="quick-review-empty" class="ledger-empty" hidden><h3>Everything is understood.</h3><p>There are no unresolved payments.</p></div>
+  <form id="quick-review-form"><div class="quick-review-progress"><strong id="quick-review-position">1 of 1</strong><span><button type="button" id="quick-review-previous">← Previous</button><button type="button" id="quick-review-next">Next →</button></span></div>
+    <div class="editor-grid"><label><span>Merchant</span><input name="merchant" required maxlength="160" /></label><label><span>Amount (₹)</span><input name="amount" required type="number" min="0.01" step="0.01" /></label><label><span>Date</span><input name="occurredDate" required type="date" /></label><label><span>Exact time <small>(optional)</small></span><input name="occurredTime" type="time" /></label><label><span>Category</span><input name="category" list="quick-review-categories" placeholder="Choose or type a category" /><datalist id="quick-review-categories"><option>Food & dining</option><option>Groceries</option><option>Travel</option><option>Shopping</option><option>Bills</option><option>Health</option><option>Entertainment</option><option>Work</option></datalist></label><label class="wide"><span>Context or note</span><textarea name="context" rows="3"></textarea></label></div>
+    <div class="sheet-actions"><button class="secondary-button" type="button" id="quick-review-later">Leave unresolved & next</button><button class="primary-button" type="submit">Save & review next</button></div>
+  </form>
+</dialog>
+<script is:inline src="/quick-review.js?v=1"></script>

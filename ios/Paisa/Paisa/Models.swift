@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import UIKit
 
 @Model
 final class PaisaTransaction {
@@ -24,15 +25,16 @@ final class PaisaTransaction {
 }
 
 enum PaisaTheme {
-    static let canvas = Color(red: 246 / 255, green: 243 / 255, blue: 236 / 255)
-    static let surface = Color(red: 252 / 255, green: 250 / 255, blue: 245 / 255)
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color { Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light }) }
+    static let canvas = adaptive(light: UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1), dark: UIColor(red: 16 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1))
+    static let surface = adaptive(light: UIColor(red: 252 / 255, green: 250 / 255, blue: 245 / 255, alpha: 1), dark: UIColor(red: 23 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1))
     static let forest = Color(red: 23 / 255, green: 61 / 255, blue: 53 / 255)
     static let forestSoft = Color(red: 47 / 255, green: 83 / 255, blue: 74 / 255)
-    static let ink = Color(red: 24 / 255, green: 35 / 255, blue: 31 / 255)
-    static let muted = Color(red: 103 / 255, green: 110 / 255, blue: 103 / 255)
+    static let ink = adaptive(light: UIColor(red: 24 / 255, green: 35 / 255, blue: 31 / 255, alpha: 1), dark: UIColor(red: 237 / 255, green: 243 / 255, blue: 239 / 255, alpha: 1))
+    static let muted = adaptive(light: UIColor(red: 103 / 255, green: 110 / 255, blue: 103 / 255, alpha: 1), dark: UIColor(red: 174 / 255, green: 187 / 255, blue: 180 / 255, alpha: 1))
     static let gold = Color(red: 229 / 255, green: 194 / 255, blue: 111 / 255)
     static let peach = Color(red: 230 / 255, green: 174 / 255, blue: 126 / 255)
-    static let line = Color(red: 219 / 255, green: 216 / 255, blue: 207 / 255)
+    static let line = adaptive(light: UIColor(red: 219 / 255, green: 216 / 255, blue: 207 / 255, alpha: 1), dark: UIColor(red: 52 / 255, green: 68 / 255, blue: 61 / 255, alpha: 1))
 }
 
 struct PaisaCard<Content: View>: View {
@@ -93,10 +95,11 @@ struct PaisaDateWindowPicker: View {
     @Binding var selection: PaisaDateWindow
     @Binding var customFrom: Date
     @Binding var customTo: Date
+    var title: String = "Activity period"
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Date window", systemImage: "calendar").font(.subheadline.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
+                Label(title, systemImage: "calendar").font(.subheadline.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
                 Spacer()
                 Picker("Period", selection: $selection) { ForEach(PaisaDateWindow.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
             }

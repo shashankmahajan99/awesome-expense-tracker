@@ -27,6 +27,16 @@ function statusLabel(status) {
   return ({ unresolved: "Needs review", explained: "Explained", known: "Known / repeat", deferred: "Deferred", auto_resolved: "Auto resolved" })[status] || status;
 }
 
+function displayMerchant(value) {
+  const cleaned = String(value || "").replace(/^\s*\d{6,}[\s/:.-]*/u, "").replace(/\s+\d{8,}\s*$/u, "").trim();
+  return cleaned || "Payment";
+}
+
+function merchantMark(value) {
+  const letters = String(value || "").match(/[\p{L}]/gu) || [];
+  return letters.slice(0, 2).join("").toUpperCase() || "₹";
+}
+
 function updateCategorySuggestions(values = []) {
   availableCategories = [...new Set([...defaultCategories, ...values].map((value) => String(value || "").trim()).filter((value) => value && value.toLowerCase() !== "uncategorised"))].sort((left, right) => left.localeCompare(right));
   renderCategoryMenu();
@@ -50,8 +60,8 @@ function render(data) {
     const merchant = document.createElement("span"); merchant.className = "ledger-merchant";
     const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = selectedIDs.has(item.id); checkbox.setAttribute("aria-label", `Select ${item.merchant}`);
     checkbox.addEventListener("click", (event) => event.stopPropagation()); checkbox.addEventListener("change", () => { checkbox.checked ? selectedIDs.add(item.id) : selectedIDs.delete(item.id); updateBulkToolbar(); });
-    const icon = document.createElement("i"); icon.textContent = item.merchant.slice(0, 2).toUpperCase();
-    const copy = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = item.merchant;
+    const shownMerchant = displayMerchant(item.merchant); const icon = document.createElement("i"); icon.textContent = merchantMark(shownMerchant);
+    const copy = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = shownMerchant;
     const date = document.createElement("small"); const dateOptions = item.timeVerified ? { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }; const occurred = new Date(item.occurredAt).toLocaleString("en-IN", dateOptions); date.textContent = item.accountTag ? `${occurred} · ${item.accountTag}` : occurred;
     copy.append(strong, date); merchant.append(checkbox, icon, copy);
     const category = document.createElement("span"); category.className = "quick-category";
@@ -63,7 +73,7 @@ function render(data) {
     const status = document.createElement("span"); const pill = document.createElement("i"); pill.className = `status-tag ${item.reviewStatus}`; pill.textContent = statusLabel(item.reviewStatus); status.append(pill);
     const amount = document.createElement("strong"); amount.className = "ledger-amount"; amount.textContent = formatter.format(item.amount);
     const actions = document.createElement("span"); actions.className = "row-actions";
-    if (item.reviewStatus === "unresolved") { const review = document.createElement("a"); review.href = `/?review=${encodeURIComponent(item.id)}`; review.textContent = "Review"; actions.append(review); }
+    if (item.reviewStatus === "unresolved") { const review = document.createElement("button"); review.type = "button"; review.textContent = "Review"; review.addEventListener("click", () => openEditor(item)); actions.append(review); }
     const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openEditor(item)); actions.append(edit);
     row.append(merchant, category, status, amount, actions); root.append(row);
   }
@@ -118,7 +128,7 @@ async function load() {
     const data = await api(`/api/transactions?${params}`); if (sequence !== loadSequence) return;
     if (currentPage > data.pages) { currentPage = data.pages; return load(); }
     transactions = data.transactions;
-    const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("All categories", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all"; updateCategorySuggestions(data.categories);
+    const selectedCategory = $("#category-filter").value; $("#category-filter").replaceChildren(new Option("Any category", "all"), ...data.categories.map((value) => new Option(value, value))); $("#category-filter").value = data.categories.includes(selectedCategory) ? selectedCategory : "all"; updateCategorySuggestions(data.categories);
     render(data);
     if (!$("[data-profile-name]").dataset.loaded) {
       const bootstrap = await api("/api/bootstrap"); if (sequence !== loadSequence) return;
@@ -174,5 +184,4 @@ $("#delete-transaction").addEventListener("click", async () => {
   try { await api(`/api/transactions/${encodeURIComponent(id)}`, { method: "DELETE" }); dialog.close(); toast("Transaction deleted", "It has been removed from your dashboard and insights"); await load(); }
   catch (error) { $("#form-error").textContent = error.message; $("#form-error").hidden = false; }
 });
-$("[data-menu]")?.addEventListener("click", () => $(".sidebar")?.classList.toggle("open"));
 updateCategorySuggestions();

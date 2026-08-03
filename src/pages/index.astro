@@ -47,18 +47,17 @@ import DateWindow from "../components/DateWindow.astro";
             <div class="empty-inbox" hidden><span>✓</span><h4>All clear for today.</h4><p>You’ve explained everything that matters.</p></div>
           </article>
 
-          <article class="panel snapshot" id="insights">
+          <div class="dashboard-side" id="dashboard-side"><article class="panel snapshot" id="insights">
             <div class="panel-heading"><div><span class="eyebrow">RECENT ACTIVITY</span><h3>Spending snapshot</h3></div><a href="/insights">Full insights →</a></div>
             <div class="month-total"><strong id="snapshot-total"><span class="skeleton-line metric-line"></span></strong><span id="snapshot-caption"><span class="skeleton-line short"></span></span></div>
             <div class="bars skeleton-bars" id="snapshot-bars" aria-label="Recent spending" aria-busy="true">{[30,52,42,69,55,82,64].map((height) => <div><i style={`height:${height}%`}></i><small class="skeleton-line tiny"></small></div>)}</div>
             <div class="insight-note" id="snapshot-note"><span>✦</span><p><span class="skeleton-line wide"></span><span class="skeleton-line medium"></span></p></div>
           </article>
+          <article class="panel categories dashboard-secondary" id="dashboard-categories-card"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list" id="dashboard-categories" aria-busy="true">{[1,2,3,4].map(() => <div class="category skeleton-category"><div><span class="skeleton-dot"></span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></div><div class="track"><i></i></div></div>)}</div></article>
+          <article class="panel focus-card dashboard-secondary" id="dashboard-focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3 id="focus-title"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></h3><p id="focus-detail"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></p><a href="/insights">Explore insights →</a></article></div>
         </section>
 
-        <section class="lower-grid" id="activity">
-          <article class="panel categories"><div class="panel-heading"><div><span class="eyebrow">WHERE IT WENT</span><h3>Top categories</h3></div><a href="/insights">View details →</a></div><div class="category-list" id="dashboard-categories" aria-busy="true">{[1,2,3,4].map(() => <div class="category skeleton-category"><div><span class="skeleton-dot"></span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></div><div class="track"><i></i></div></div>)}</div></article>
-          <article class="panel focus-card"><span class="eyebrow">ONE THING TO KNOW</span><div class="focus-icon">↗</div><h3 id="focus-title"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></h3><p id="focus-detail"><span class="skeleton-line wide dark"></span><span class="skeleton-line medium dark"></span></p><a href="/insights">Explore insights →</a></article>
-        </section>
+        <section class="dashboard-bottom" id="activity"></section>
         <footer><span>Paisa Inbox understands your spending, without making you log every little thing.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · Last synced just now</span></footer>
       </main>
     </div>
@@ -70,6 +69,10 @@ import DateWindow from "../components/DateWindow.astro";
         <div class="review-card">
           <span class="merchant-icon amber large" id="review-icon">A</span><p id="review-meta">TODAY · 5:42 PM</p><h2 id="review-amount">₹8,400</h2><h3 id="review-merchant">Amazon</h3>
           <div class="review-category-block"><span>Choose a category</span><label class="review-category"><span class="sr-only">Category</span><select id="review-category"></select><input id="review-category-custom" type="text" placeholder="Type a new category" hidden /></label><div class="category-chips" id="review-category-chips" aria-label="Quick categories"></div></div>
+          <details class="review-details"><summary>Edit payment details</summary><div class="review-edit-grid">
+            <label><span>Merchant</span><input id="review-edit-merchant" maxlength="160" /></label><label><span>Amount (₹)</span><input id="review-edit-amount" type="number" min="0.01" step="0.01" /></label>
+            <label><span>Date</span><input id="review-edit-date" type="date" /></label><label><span>Exact time <small>(optional)</small></span><input id="review-edit-time" type="time" /></label>
+          </div></details>
           <div class="prompt"><span>✦</span><p><strong id="review-question">Add any context that will help later.</strong><small id="review-hint">A category is enough; a short note makes insights clearer.</small></p></div>
           <button class="voice-button" id="voice-button" type="button"><span>●</span><strong data-voice-label>Tap to speak</strong><small data-voice-hint>or type your answer below</small></button>
           <label class="answer-field"><span class="sr-only">Explain this payment</span><input id="answer-input" type="text" placeholder="e.g. New office chair, work expense" /><i class="field-loader" aria-label="Listening" hidden></i><button type="button" id="submit-answer" aria-label="Save and review next payment"><span>✓</span></button></label>
@@ -138,6 +141,6 @@ import DateWindow from "../components/DateWindow.astro";
 
     <div class="toast" role="status" aria-live="polite"><span>✓</span><p><strong>Context saved</strong><small>Moving to the next payment</small></p></div>
 
-    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/client.js?v=18"></script>
+    <script is:inline src="/date-window.js?v=4"></script><script is:inline src="/client.js?v=19"></script>
   </body>
 </html>
