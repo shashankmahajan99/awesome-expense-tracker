@@ -111,6 +111,7 @@ struct TransactionEditor: View {
 
 struct InsightsView: View {
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }) private var transactions: [PaisaTransaction]
+    @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
     @State private var dateWindow: PaisaDateWindow = .all
     @State private var customFrom = Calendar.current.date(byAdding: .month, value: -1, to: .now) ?? .now
     @State private var customTo = Date.now
@@ -119,6 +120,12 @@ struct InsightsView: View {
     private var categorySpend: [CategorySpend] {
         Dictionary(grouping: visible, by: \.category).map { category, items in
             CategorySpend(category: category, amount: items.reduce(0) { $0 + $1.amount }, count: items.count)
+        }.sorted { $0.amount > $1.amount }
+    }
+    private var accountSpend: [AccountSpend] {
+        Dictionary(grouping: visible.filter { !$0.accountTag.isEmpty }, by: \.accountTag).map { name, items in
+            let account = paymentAccounts.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+            return AccountSpend(name: account?.displayName ?? name, kind: account?.kind.capitalized ?? "Payment account", amount: items.reduce(0) { $0 + $1.amount }, count: items.count)
         }.sorted { $0.amount > $1.amount }
     }
     var body: some View {
@@ -139,6 +146,16 @@ struct InsightsView: View {
                         Text("\(summary.count) \(summary.count == 1 ? "payment" : "payments")").font(.caption).foregroundStyle(PaisaTheme.muted).padding(.top, 4)
                     }
                 }
+                if !accountSpend.isEmpty {
+                    PaisaEyebrow(text: "By payment account").padding(.top, 8)
+                    ForEach(accountSpend) { summary in
+                        PaisaCard {
+                            HStack { VStack(alignment: .leading, spacing: 3) { Text(summary.name).fontWeight(.bold).foregroundStyle(PaisaTheme.ink); Text(summary.kind).font(.caption).foregroundStyle(PaisaTheme.muted) }; Spacer(); Text(PaisaFormat.amount(summary.amount)).fontWeight(.bold).foregroundStyle(PaisaTheme.ink) }
+                            ProgressView(value: total > 0 ? summary.amount / total : 0).tint(PaisaTheme.peach).padding(.top, 8)
+                            Text("\(summary.count) \(summary.count == 1 ? "payment" : "payments")").font(.caption).foregroundStyle(PaisaTheme.muted).padding(.top, 4)
+                        }
+                    }
+                }
             }.padding(18)
         }
         .background(PaisaTheme.canvas.ignoresSafeArea())
@@ -154,6 +171,14 @@ private struct CategorySpend: Identifiable {
     let amount: Double
     let count: Int
     var id: String { category }
+}
+
+private struct AccountSpend: Identifiable {
+    let name: String
+    let kind: String
+    let amount: Double
+    let count: Int
+    var id: String { name }
 }
 
 struct SettingsView: View {
