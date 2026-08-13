@@ -30,6 +30,7 @@ private struct SyncResponse: Decodable {
     let transactions: [SyncTransaction]
     let tombstones: [SyncTombstone]
     let aliases: [String: String]
+    let duplicatesMerged: Int?
     let accounts: [SyncPaymentAccount]?
     let preferences: MobileSyncPreferences?
 }
@@ -327,7 +328,9 @@ final class SyncManager: ObservableObject {
         lastSynced = Date()
         let visibleCount = response.transactions.count
         syncCompleted = syncTotal
-        status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions") just now"
+        let mergedCount = response.duplicatesMerged ?? aliases.count
+        let mergedSuffix = mergedCount > 0 ? " · merged \(mergedCount) duplicate\(mergedCount == 1 ? "" : "s")" : ""
+        status = "Synced \(visibleCount) \(visibleCount == 1 ? "transaction" : "transactions")\(mergedSuffix) just now"
     }
 
     private func request<Response: Decodable, Body: Encodable>(_ path: String, method: String, body: Body?, authenticated: Bool) async throws -> Response {

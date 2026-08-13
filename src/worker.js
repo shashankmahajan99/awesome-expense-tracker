@@ -265,12 +265,14 @@ async function syncMobile(db, user, payload) {
     }
   }
   await reconcileUserDuplicates(db,user.id,aliases);
+  const duplicatesMerged = Object.keys(aliases).length;
+  if (duplicatesMerged) await audit(db,user.id,"transactions.deduplicated","transaction",null,{ merged: duplicatesMerged, source: "mobile_sync" });
   const [transactions, tombstones] = await Promise.all([
     db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY occurred_at DESC LIMIT 2000").bind(user.id).all(),
     db.prepare("SELECT transaction_id,deleted_at FROM transaction_tombstones WHERE user_id=?").bind(user.id).all(),
   ]);
   const preferences = await getPreferences(db, user.id);
-  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), accounts: await listPaymentAccounts(db, user.id), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases, preferences });
+  return json({ serverTime: timestamp(), transactions: transactions.results.map(mapTransaction), accounts: await listPaymentAccounts(db, user.id), tombstones: tombstones.results.map((row) => ({ id: row.transaction_id, deletedAt: timestamp(new Date(String(row.deleted_at).replace(" ", "T") + (String(row.deleted_at).includes("Z") ? "" : "Z"))) })), aliases, duplicatesMerged, preferences });
 }
 
 async function getPreferences(db, userId) {
@@ -326,7 +328,8 @@ async function importTransactions(db, user, payload) {
     imported += Number(result.meta?.changes || 0);
     if (!result.meta?.changes) duplicates++;
   }
-  await reconcileUserDuplicates(db,user.id,{});
+  const reconciled = await reconcileUserDuplicates(db,user.id,{});
+  duplicates += reconciled;
   await audit(db, user.id, "transactions.imported", "transaction", null, { imported, verified, duplicates, received: transactions.length });
   return json({ imported, verified, duplicates });
 }
