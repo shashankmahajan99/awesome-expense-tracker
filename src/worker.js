@@ -719,7 +719,11 @@ async function verifySetuWebhook(request, env, rawBody) {
   if (providedSignature && timingSafeEqual(providedSignature, await hmacBase64(rawBody, env.SETU_WEBHOOK_SECRET))) return true;
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   const explicit = request.headers.get("x-setu-webhook-secret");
-  return timingSafeEqual(bearer || explicit || "", env.SETU_WEBHOOK_SECRET);
+  // Setu Bridge's AA sandbox configuration currently accepts a callback URL
+  // but does not expose custom notification headers. Keep a scoped URL token
+  // as the sandbox-compatible fallback while preferring signed/header auth.
+  const callbackToken = new URL(request.url).searchParams.get("token");
+  return timingSafeEqual(bearer || explicit || callbackToken || "", env.SETU_WEBHOOK_SECRET);
 }
 
 async function ingestSetuData(db, connection, payload) {
