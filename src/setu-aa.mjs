@@ -1,4 +1,5 @@
 const PURPOSE = {
+  category: { type: "string" },
   code: "102",
   text: "Customer spending patterns, budget or other reportings",
   refUri: "https://api.rebit.org.in/aa/purpose/102.xml",
@@ -26,7 +27,7 @@ export function buildConsentRequest({ mobile, redirectUrl, now = new Date() }) {
     purpose: PURPOSE,
     dataRange: { from: from.toISOString(), to: to.toISOString() },
     dataLife: { unit: "YEAR", value: "1" },
-    frequency: { unit: "DAILY", value: "1" },
+    frequency: { unit: "DAY", value: "1" },
     redirectUrl,
     context: [],
     additionalParams: { tags: ["Paisa_Expense_Tracking"] },

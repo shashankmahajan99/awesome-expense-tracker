@@ -11,9 +11,10 @@ test("normalizes only valid Indian mobile numbers", () => {
 test("builds a minimal purpose-102 periodic deposit consent", () => {
   const request = buildConsentRequest({ mobile: "9876543210", redirectUrl: "https://paisa.example/accounts?setu=returned", now: new Date("2026-08-17T12:00:00.000Z") });
   assert.equal(request.purpose.code, "102");
+  assert.deepEqual(request.purpose.category, { type: "string" });
   assert.deepEqual(request.consentTypes, ["TRANSACTIONS", "SUMMARY"]);
   assert.deepEqual(request.fiTypes, ["DEPOSIT"]);
-  assert.equal(request.frequency.unit, "DAILY");
+  assert.equal(request.frequency.unit, "DAY");
   assert.equal(request.dataRange.from, "2025-08-17T12:00:00.000Z");
   assert.equal(request.dataRange.to, "2026-08-17T12:00:00.000Z");
   assert.equal(request.consentTypes.includes("PROFILE"), false);
