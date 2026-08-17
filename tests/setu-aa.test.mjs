@@ -18,6 +18,7 @@ test("builds a minimal purpose-102 periodic deposit consent", () => {
   assert.equal(request.dataRange.from, "2025-08-17T12:00:00.000Z");
   assert.equal(request.dataRange.to, "2026-08-17T12:00:00.000Z");
   assert.equal(request.consentTypes.includes("PROFILE"), false);
+  assert.equal("additionalParams" in request, false);
 });
 
 test("extracts debit transactions without retaining holder profile", () => {

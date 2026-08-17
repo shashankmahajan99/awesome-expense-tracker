@@ -30,7 +30,6 @@ export function buildConsentRequest({ mobile, redirectUrl, now = new Date() }) {
     frequency: { unit: "DAY", value: "1" },
     redirectUrl,
     context: [],
-    additionalParams: { tags: ["Paisa_Expense_Tracking"] },
   };
 }
 
