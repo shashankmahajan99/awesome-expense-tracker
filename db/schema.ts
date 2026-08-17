@@ -13,4 +13,8 @@ export const tables = {
   mobile_sessions: ["id", "user_id", "token_hash", "device_name", "created_at", "last_used_at", "revoked_at"],
   push_devices: ["token", "user_id", "session_id", "environment", "app_bundle", "created_at", "updated_at"],
   transaction_tombstones: ["user_id", "transaction_id", "deleted_at"],
+  aa_consents: ["id", "user_id", "provider", "consent_id", "status", "consent_url", "mobile_last_four", "purpose_code", "data_range_from", "data_range_to", "consent_expires_at", "accounts_json", "last_synced_at", "last_error_code", "last_error_message", "created_at", "updated_at"],
+  aa_events: ["event_id", "consent_id", "event_type", "status", "received_at"],
+  aa_transaction_refs: ["provider", "external_ref", "user_id", "consent_id", "transaction_id", "created_at"],
+  monthly_money_plans: ["user_id", "month", "income_paise", "planned_savings_paise", "fixed_costs_paise", "intention", "reflection", "created_at", "updated_at"],
 } as const;

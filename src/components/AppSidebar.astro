@@ -1,5 +1,5 @@
 ---
-interface Props { active?: "overview" | "inbox" | "transactions" | "insights"; }
+interface Props { active?: "overview" | "inbox" | "transactions" | "insights" | "accounts" | "plan"; }
 const { active = "overview" } = Astro.props;
 import AppIcon from "./AppIcon.astro";
 import GlobalDialogs from "./GlobalDialogs.astro";
@@ -11,13 +11,15 @@ import GlobalDialogs from "./GlobalDialogs.astro";
     <a class:list={["nav-link", { active: active === "inbox" }]} href="/#inbox"><AppIcon name="inbox" />Daily inbox <b data-inbox-count aria-label="Loading inbox count"><i class="skeleton-count"></i></b></a>
     <a class:list={["nav-link", { active: active === "transactions" }]} href="/transactions"><AppIcon name="transactions" />Transactions</a>
     <a class:list={["nav-link", { active: active === "insights" }]} href="/insights"><AppIcon name="insights" />Insights</a>
+    <a class:list={["nav-link", { active: active === "plan" }]} href="/money-plan"><AppIcon name="plan" />Monthly plan</a>
+    <a class:list={["nav-link", { active: active === "accounts" }]} href="/accounts"><AppIcon name="bank" />Bank connections</a>
     <a class="nav-link" href="/connect-device"><AppIcon name="phone" />Connect iPhone</a>
     <button class="nav-link nav-button" type="button" data-open-preferences><AppIcon name="settings" />Preferences</button>
     <a class="nav-link" href="/privacy"><AppIcon name="privacy" />Privacy</a>
     <a class="nav-link" href="/terms"><AppIcon name="terms" />Terms</a>
   </nav>
   <div class="sidebar-bottom">
-    <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>Build your streak</strong><p>A short daily review keeps insights accurate.</p><div class="streak-days" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
+    <div class="streak-card"><span class="eyebrow">MONEY CLARITY</span><strong>Small, steady reviews</strong><p>Notice what changed. Choose one intention. Leave the rest.</p><div class="streak-days" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="today"></i></div></div>
     <button class="profile" type="button" data-open-profile aria-label="Open profile"><span data-profile-initials>PI</span><span><strong data-profile-name>My account</strong><small data-profile-email>Private account</small></span><b>›</b></button>
   </div>
 </aside>

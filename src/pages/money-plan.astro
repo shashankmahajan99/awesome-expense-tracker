@@ -1,0 +1,18 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
+---
+<!doctype html><html lang="en"><head><BaseHead title="Monthly money plan — Paisa Inbox" description="A calm, Kakeibo-inspired monthly plan for income, saving, spending, and one meaningful intention." /></head><body>
+<div class="app-shell"><AppSidebar active="plan" /><main><AppTopbar title="Monthly money plan" subtitle="A QUIET Kakeibo-INSPIRED CHECK-IN" action="none" />
+<section class="workspace-page money-plan-page"><div class="page-intro"><div><span class="eyebrow">NOTICE, CHOOSE, MOVE ON</span><h2>Give this month one clear intention.</h2><p>Inspired by Kakeibo: understand what comes in, decide what to keep, notice what goes out, and reflect without judgement. Four answers are enough.</p></div><a class="secondary-button" href="/insights">See spending →</a></div>
+<div class="plan-layout"><form class="panel money-plan-form" id="money-plan-form">
+  <label class="month-picker"><span>Planning month</span><input type="month" name="month" required /></label>
+  <fieldset><legend><b>1</b><span><strong>How much money will come in?</strong><small>Use take-home income you can actually plan with.</small></span></legend><label class="rupee-input"><span>₹</span><input name="income" type="number" min="0" step="1" inputmode="decimal" placeholder="0" /></label></fieldset>
+  <fieldset><legend><b>2</b><span><strong>How much would you like to keep?</strong><small>Choose savings before spending fills the space.</small></span></legend><label class="rupee-input"><span>₹</span><input name="plannedSavings" type="number" min="0" step="1" inputmode="decimal" placeholder="0" /></label></fieldset>
+  <fieldset><legend><b>3</b><span><strong>What is already spoken for?</strong><small>Rent, EMIs, bills, school fees, and other fixed costs.</small></span></legend><label class="rupee-input"><span>₹</span><input name="fixedCosts" type="number" min="0" step="1" inputmode="decimal" placeholder="0" /></label></fieldset>
+  <fieldset><legend><b>4</b><span><strong>What matters most this month?</strong><small>One short intention is easier to remember than ten rules.</small></span></legend><textarea name="intention" rows="3" maxlength="240" placeholder="e.g. Cook on weekdays and keep weekends flexible"></textarea></fieldset>
+  <details><summary>End-of-month reflection</summary><label><span class="sr-only">Reflection</span><textarea name="reflection" rows="4" maxlength="1000" placeholder="What worked? What surprised you? What would you change next month?"></textarea></label></details>
+  <p id="plan-status" class="form-status" role="status" aria-live="polite"></p><button class="primary-button" type="submit">Save this month’s intention</button>
+</form><aside class="plan-summary"><section class="plan-balance"><span class="eyebrow">AVAILABLE FOR CHOICES</span><strong id="available-money">₹0</strong><p>Income minus planned savings and fixed costs.</p><div><span><small>Spent so far</small><b id="spent-money">₹0</b></span><span><small>Flexible balance</small><b id="remaining-money">₹0</b></span></div></section><section class="panel kakeibo-note"><span>家計簿</span><h3>A ledger is useful. Attention is better.</h3><p>Paisa fills the ledger automatically. Your only job is to notice the month and choose what deserves your money.</p></section></aside></div>
+</section><footer><span>Planning should create clarity, not guilt.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></main></div><script is:inline src="/money-plan.js?v=1"></script></body></html>

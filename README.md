@@ -12,6 +12,8 @@ Paisa turns unresolved transactions into one calm, useful daily review. The host
 - Dedicated dashboard, Transactions, and Insights screens with working navigation.
 - Dismissible review sheets, save-and-return behavior, and speech start/stop/loading feedback.
 - Export and permanent account-data deletion.
+- Optional Setu AA bank connection with explicit purpose, status, refresh, revocation, verified webhooks, and idempotent ledger reconciliation.
+- A Kakeibo-inspired monthly plan for income, saving, fixed costs, one intention, and reflection.
 - Timezone-aware reminder decision engine and exactly-once delivery records.
 - Security headers, same-origin API enforcement, audit events, CI, and domain tests.
 
@@ -30,6 +32,8 @@ The deployment build packages an Astro client and Cloudflare-compatible Worker. 
 ## External configuration
 
 Actual push delivery requires `PUSH_WEBHOOK_URL` and `PUSH_WEBHOOK_SECRET` in the hosted runtime. Bank feeds, Account Aggregator access, APNs, and FCM require separate provider enrollment and credentials and are intentionally not stored in this repository.
+
+Setu AA uses the variables documented in `.env.example`. The integration, data boundaries, sandbox checks, and legal launch gates are documented in [`docs/SETU_AA_ARCHITECTURE.md`](docs/SETU_AA_ARCHITECTURE.md). Production onboarding and legal review remain required; code completion does not itself establish FIU approval or regulatory compliance.
 
 ## iOS app
 

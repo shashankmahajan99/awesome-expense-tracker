@@ -19,6 +19,7 @@ await mkdir(hosting, { recursive: true });
 await Promise.all([
   copyFile(new URL("../src/worker.js", import.meta.url), new URL("index.js", server)),
   copyFile(new URL("../src/domain.mjs", import.meta.url), new URL("domain.mjs", server)),
+  copyFile(new URL("../src/setu-aa.mjs", import.meta.url), new URL("setu-aa.mjs", server)),
   copyFile(new URL("../node_modules/pdfjs-dist/build/pdf.min.mjs", import.meta.url), new URL("pdf.mjs", vendor)),
   copyFile(new URL("../node_modules/pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url), new URL("pdf.worker.mjs", vendor)),
   copyFile(new URL("../.openai/hosting.json", import.meta.url), new URL("hosting.json", hosting)),

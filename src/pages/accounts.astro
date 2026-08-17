@@ -1,0 +1,21 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+import AppSidebar from "../components/AppSidebar.astro";
+import AppTopbar from "../components/AppTopbar.astro";
+---
+<!doctype html><html lang="en"><head><BaseHead title="Bank connections — Paisa Inbox" description="Connect deposit accounts through Setu's Account Aggregator Gateway with clear, revocable consent." /></head><body>
+<div class="app-shell"><AppSidebar active="accounts" /><main><AppTopbar title="Bank connections" subtitle="CONSENT YOU CAN SEE AND CONTROL" action="none" />
+<section class="workspace-page accounts-page">
+  <div class="page-intro"><div><span class="eyebrow">SETU ACCOUNT AGGREGATOR</span><h2>Your bank ledger, without handing over a password.</h2><p>Connect eligible deposit accounts through a regulated Account Aggregator journey. Paisa Inbox never asks for net-banking credentials or reads an OTP; you approve the request on Setu’s hosted consent screen.</p></div><a class="secondary-button" href="/privacy#account-aggregator">How your data is used →</a></div>
+  <div class="trust-strip" aria-label="Bank connection safeguards"><span><b>01</b><strong>No bank password</strong><small>Authentication stays with the AA and your bank.</small></span><span><b>02</b><strong>Purpose 102</strong><small>Spending patterns, budgets, and reports only.</small></span><span><b>03</b><strong>Revocable here</strong><small>Withdraw with an in-app action at any time.</small></span></div>
+  <div class="accounts-grid">
+    <section class="panel aa-connect-card"><span class="eyebrow">CONNECT ONCE</span><h3>Keep transactions in sync</h3><p>Use the mobile number registered with your bank. Setu will help discover supported accounts and ask you to approve them.</p>
+      <form id="aa-connect-form"><label><span>Bank-registered mobile number</span><div class="mobile-field"><b>+91</b><input name="mobile" inputmode="numeric" autocomplete="tel-national" maxlength="10" pattern="[6-9][0-9]{9}" placeholder="98765 43210" required /></div></label><button class="primary-button" type="submit">Continue securely →</button></form>
+      <p class="form-status" id="aa-form-status" role="status" aria-live="polite"></p>
+      <details class="consent-preview"><summary>See the exact request before continuing</summary><dl><div><dt>Data</dt><dd>Deposit summaries and transactions; not passwords or OTPs</dd></div><div><dt>Purpose</dt><dd>Understand spending, prepare budgets, and sync your ledger</dd></div><div><dt>History</dt><dd>Up to the previous 12 months</dd></div><div><dt>Frequency</dt><dd>At most once daily for 12 months</dd></div><div><dt>Retention</dt><dd>Up to one year, or earlier when you delete it where applicable</dd></div></dl></details>
+    </section>
+    <section class="panel connection-list-card"><div class="panel-heading"><div><span class="eyebrow">YOUR CONSENTS</span><h3>Connected and pending</h3></div><button id="refresh-connections" type="button">Refresh</button></div><div id="bank-connections" aria-busy="true"><div class="connection-skeleton"><span class="skeleton-avatar"></span><span><i class="skeleton-line medium"></i><i class="skeleton-line short"></i></span></div></div></section>
+  </div>
+  <section class="consent-fine-print"><h3>One approval does not mean permanent access.</h3><p>Every request has a stated purpose, data range, frequency, and expiry. Revoking stops future AA retrieval. Deleting your Paisa account first revokes current consents, then removes your local records. Bank records remain with your bank.</p><a href="/privacy#your-rights">Review privacy and deletion controls →</a></section>
+</section><footer><span>Setu facilitates the AA journey; Paisa owns your private ledger and review experience.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></main></div>
+<script is:inline src="/accounts.js?v=1"></script></body></html>

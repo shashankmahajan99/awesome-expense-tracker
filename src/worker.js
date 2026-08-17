@@ -1,4 +1,5 @@
 import { dedupeKey, duplicateEvidence, explainMatches, importance, normalizeMerchant, shouldNotify } from "./domain.mjs";
+import { buildConsentRequest, extractDepositTransactions, normalizeIndianMobile, publicConsent } from "./setu-aa.mjs";
 
 const schema = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, display_name TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -18,6 +19,12 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS push_devices (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, session_id TEXT NOT NULL REFERENCES mobile_sessions(id) ON DELETE CASCADE, environment TEXT NOT NULL DEFAULT 'production', app_bundle TEXT NOT NULL DEFAULT 'com.shashankmahajan.paisa', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id,session_id)`,
   `CREATE TABLE IF NOT EXISTS transaction_tombstones (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, transaction_id TEXT NOT NULL, deleted_at TEXT NOT NULL, PRIMARY KEY(user_id,transaction_id))`,
+  `CREATE TABLE IF NOT EXISTS aa_consents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, provider TEXT NOT NULL DEFAULT 'setu', consent_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'PENDING', consent_url TEXT NOT NULL DEFAULT '', mobile_last_four TEXT NOT NULL DEFAULT '', purpose_code TEXT NOT NULL DEFAULT '102', data_range_from TEXT NOT NULL, data_range_to TEXT NOT NULL, consent_expires_at TEXT, accounts_json TEXT NOT NULL DEFAULT '[]', last_synced_at TEXT, last_error_code TEXT NOT NULL DEFAULT '', last_error_message TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS idx_aa_consents_user_status ON aa_consents(user_id,status,updated_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS aa_events (event_id TEXT PRIMARY KEY, consent_id TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE INDEX IF NOT EXISTS idx_aa_events_consent_received ON aa_events(consent_id,received_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS aa_transaction_refs (provider TEXT NOT NULL, external_ref TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, consent_id TEXT NOT NULL, transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(provider,external_ref,user_id))`,
+  `CREATE TABLE IF NOT EXISTS monthly_money_plans (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, month TEXT NOT NULL, income_paise INTEGER NOT NULL DEFAULT 0, planned_savings_paise INTEGER NOT NULL DEFAULT 0, fixed_costs_paise INTEGER NOT NULL DEFAULT 0, intention TEXT NOT NULL DEFAULT '', reflection TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id,month))`,
 ];
 
 let schemaReady = false;
@@ -60,6 +67,37 @@ async function sha256(value) {
 
 function randomToken(size = 32) {
   const bytes = new Uint8Array(size); crypto.getRandomValues(bytes); return base64url(bytes);
+}
+
+let setuTokenCache = null;
+function setuConfig(env) {
+  const production = env.SETU_ENV === "production";
+  return {
+    configured: Boolean(env.SETU_CLIENT_ID && env.SETU_CLIENT_SECRET && env.SETU_PRODUCT_INSTANCE_ID && env.SETU_WEBHOOK_SECRET),
+    baseUrl: env.SETU_BASE_URL || (production ? "https://fiu.setu.co" : "https://fiu-sandbox.setu.co"),
+    authUrl: env.SETU_AUTH_URL || (production ? "https://prod.setu.co/api/v2/auth/token" : "https://uat.setu.co/api/v2/auth/token"),
+  };
+}
+
+async function setuAccessToken(env, refresh = false) {
+  if (!setuConfig(env).configured) throw new Error("Setu AA is not configured");
+  if (!refresh && setuTokenCache && setuTokenCache.expiresAt > Date.now() + 60000) return setuTokenCache.token;
+  const response = await fetch(setuConfig(env).authUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientID: env.SETU_CLIENT_ID, secret: env.SETU_CLIENT_SECRET }) });
+  const result = await response.json().catch(() => ({}));
+  const token = result?.data?.token || result?.token;
+  const expiresIn = Number(result?.data?.expiresIn || result?.expiresIn || 1800);
+  if (!response.ok || !token) throw new Error("Setu authentication failed");
+  setuTokenCache = { token, expiresAt: Date.now() + Math.max(60, expiresIn) * 1000 };
+  return token;
+}
+
+async function setuRequest(env, path, options = {}, retry = true) {
+  const token = await setuAccessToken(env);
+  const response = await fetch(`${setuConfig(env).baseUrl}${path}`, { ...options, headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "x-product-instance-id": env.SETU_PRODUCT_INSTANCE_ID, ...(options.headers || {}) } });
+  if (response.status === 401 && retry) { await setuAccessToken(env, true); return setuRequest(env, path, options, false); }
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(result.errorMsg || result.message || result.error?.message || `Setu request failed (${response.status})`).slice(0, 240));
+  return result;
 }
 
 function timestamp(value = new Date()) { return value.toISOString(); }
@@ -469,6 +507,8 @@ async function getInsights(db, user, url) {
 }
 
 async function resetFinancialData(db, user) {
+  const activeConsent = await db.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED') LIMIT 1").bind(user.id).first();
+  if (activeConsent) return json({ error: "Disconnect your bank consent before deleting synced transactions, otherwise the next sync could restore them.", code: "ACTIVE_BANK_CONSENT" }, 409);
   const rows = await db.prepare("SELECT id FROM transactions WHERE user_id=?").bind(user.id).all(); const deletedAt = timestamp();
   const tombstones = rows.results.map((row) => db.prepare("INSERT INTO transaction_tombstones (user_id,transaction_id,deleted_at) VALUES (?,?,?) ON CONFLICT(user_id,transaction_id) DO UPDATE SET deleted_at=excluded.deleted_at").bind(user.id, row.id, deletedAt));
   if (tombstones.length) await db.batch(tombstones);
@@ -573,6 +613,152 @@ async function sendAPNs(env, device, summary) {
   return { ok: response.ok, remove: false, reason: response.ok ? "sent" : `http_${response.status}` };
 }
 
+async function listBankConnections(db, userId) {
+  const rows = await db.prepare("SELECT * FROM aa_consents WHERE user_id=? ORDER BY updated_at DESC").bind(userId).all();
+  return rows.results.map(publicConsent);
+}
+
+async function createSetuConsent(env, user, request, payload) {
+  const config = setuConfig(env);
+  if (!config.configured) return json({ error: "Bank connection is being prepared. Setu credentials and webhook verification must be configured before it can go live.", code: "SETU_NOT_CONFIGURED" }, 503);
+  const mobile = normalizeIndianMobile(payload.mobile);
+  if (!mobile) return json({ error: "Enter a valid 10-digit Indian mobile number" }, 400);
+  const existing = await env.DB.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED') ORDER BY updated_at DESC LIMIT 1").bind(user.id).first();
+  if (existing) return json({ error: "You already have a current bank consent. Open it to continue, refresh, or revoke it.", existingId: existing.id }, 409);
+  const redirectUrl = new URL("/accounts?setu=returned", request.url).toString();
+  const consentRequest = buildConsentRequest({ mobile, redirectUrl });
+  let result;
+  try { result = await setuRequest(env, "/v2/consents", { method: "POST", body: JSON.stringify(consentRequest) }); }
+  catch (error) { return json({ error: error.message || "Setu could not start the consent flow" }, 502); }
+  const consentId = String(result.id || result.consentId || "");
+  const consentUrl = String(result.url || "");
+  if (!consentId || !consentUrl) return json({ error: "Setu returned an incomplete consent response" }, 502);
+  const id = crypto.randomUUID();
+  const status = String(result.status || "PENDING").toUpperCase();
+  const expiry = result.detail?.consentExpiry || null;
+  await env.DB.prepare("INSERT INTO aa_consents (id,user_id,consent_id,status,consent_url,mobile_last_four,data_range_from,data_range_to,consent_expires_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id, user.id, consentId, status, consentUrl, mobile.slice(-4), consentRequest.dataRange.from, consentRequest.dataRange.to, expiry).run();
+  await audit(env.DB, user.id, "aa.consent.created", "aa_consent", id, { provider: "setu", purposeCode: "102", status });
+  const row = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=?").bind(id).first();
+  return json({ connection: publicConsent(row), consentUrl }, 201);
+}
+
+async function refreshSetuConsent(env, user, id) {
+  const row = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=? AND user_id=?").bind(id, user.id).first();
+  if (!row) return json({ error: "Bank consent not found" }, 404);
+  if (!setuConfig(env).configured) return json({ error: "Setu AA is not configured" }, 503);
+  let result;
+  try { result = await setuRequest(env, `/v2/consents/${encodeURIComponent(row.consent_id)}?expanded=true`, { method: "GET" }); }
+  catch (error) { return json({ error: error.message || "Could not refresh consent" }, 502); }
+  const status = String(result.status || row.status).toUpperCase();
+  const accounts = (Array.isArray(result.accountsLinked) ? result.accountsLinked : []).map((account) => ({ maskedAccNumber: account.maskedAccNumber || "", accType: account.accType || "", fipId: account.fipId || account.fipID || "" }));
+  await env.DB.prepare("UPDATE aa_consents SET status=?,consent_url=?,accounts_json=?,consent_expires_at=COALESCE(?,consent_expires_at),last_error_code='',last_error_message='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(status, status === "PENDING" || status === "INITIATED" ? String(result.url || row.consent_url) : "", JSON.stringify(accounts), result.detail?.consentExpiry || null, id, user.id).run();
+  const updated = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=?").bind(id).first();
+  return json({ connection: publicConsent(updated) });
+}
+
+async function revokeSetuConsent(env, user, id) {
+  const row = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=? AND user_id=?").bind(id, user.id).first();
+  if (!row) return json({ error: "Bank consent not found" }, 404);
+  if (["REVOKED", "EXPIRED", "REJECTED"].includes(String(row.status).toUpperCase())) return json({ connection: publicConsent(row) });
+  if (!setuConfig(env).configured) return json({ error: "Setu AA is not configured" }, 503);
+  try { await setuRequest(env, `/v2/consents/${encodeURIComponent(row.consent_id)}/revoke`, { method: "POST" }); }
+  catch (error) { return json({ error: error.message || "Setu could not revoke consent" }, 502); }
+  await env.DB.prepare("UPDATE aa_consents SET status='REVOKED',consent_url='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?").bind(id, user.id).run();
+  await audit(env.DB, user.id, "aa.consent.revoked", "aa_consent", id, { provider: "setu" });
+  const updated = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=?").bind(id).first();
+  return json({ connection: publicConsent(updated) });
+}
+
+function currentMonth() { return new Date().toISOString().slice(0, 7); }
+function validMonth(value) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || "")) ? String(value) : currentMonth(); }
+async function getMoneyPlan(db, user, monthValue) {
+  const month = validMonth(monthValue); const start = `${month}-01T00:00:00.000Z`; const next = new Date(`${start}`); next.setUTCMonth(next.getUTCMonth() + 1);
+  const [row, spending] = await Promise.all([db.prepare("SELECT * FROM monthly_money_plans WHERE user_id=? AND month=?").bind(user.id, month).first(), db.prepare("SELECT COALESCE(SUM(amount_paise),0) AS amount FROM transactions WHERE user_id=? AND occurred_at>=? AND occurred_at<? AND is_own_transfer=0 AND is_reversed=0").bind(user.id, start, next.toISOString()).first()]);
+  const plan = row || { income_paise: 0, planned_savings_paise: 0, fixed_costs_paise: 0, intention: "", reflection: "" };
+  const availablePaise = Math.max(0, Number(plan.income_paise) - Number(plan.planned_savings_paise) - Number(plan.fixed_costs_paise));
+  return { month, incomePaise: Number(plan.income_paise), plannedSavingsPaise: Number(plan.planned_savings_paise), fixedCostsPaise: Number(plan.fixed_costs_paise), availablePaise, spentPaise: Number(spending?.amount || 0), remainingPaise: availablePaise - Number(spending?.amount || 0), intention: plan.intention || "", reflection: plan.reflection || "" };
+}
+
+async function saveMoneyPlan(db, user, payload) {
+  const month = validMonth(payload.month); const paise = (value) => Math.max(0, Math.min(100000000000, Math.round(Number(value || 0) * 100)));
+  const intention = String(payload.intention || "").trim().slice(0, 240), reflection = String(payload.reflection || "").trim().slice(0, 1000);
+  await db.prepare("INSERT INTO monthly_money_plans (user_id,month,income_paise,planned_savings_paise,fixed_costs_paise,intention,reflection) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,month) DO UPDATE SET income_paise=excluded.income_paise,planned_savings_paise=excluded.planned_savings_paise,fixed_costs_paise=excluded.fixed_costs_paise,intention=excluded.intention,reflection=excluded.reflection,updated_at=CURRENT_TIMESTAMP").bind(user.id, month, paise(payload.income), paise(payload.plannedSavings), paise(payload.fixedCosts), intention, reflection).run();
+  await audit(db, user.id, "money_plan.updated", "monthly_money_plan", month);
+  return json({ plan: await getMoneyPlan(db, user, month) });
+}
+
+function timingSafeEqual(left, right) {
+  const a = new TextEncoder().encode(String(left || "")), b = new TextEncoder().encode(String(right || ""));
+  let mismatch = a.length ^ b.length; const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index++) mismatch |= (a[index % Math.max(a.length, 1)] || 0) ^ (b[index % Math.max(b.length, 1)] || 0);
+  return mismatch === 0;
+}
+
+async function hmacBase64(value, secret) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)));
+  return btoa(String.fromCharCode(...signature));
+}
+
+async function verifySetuWebhook(request, env, rawBody) {
+  if (!env.SETU_WEBHOOK_SECRET) return false;
+  const providedSignature = request.headers.get("x-setu-signature");
+  if (providedSignature && timingSafeEqual(providedSignature, await hmacBase64(rawBody, env.SETU_WEBHOOK_SECRET))) return true;
+  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const explicit = request.headers.get("x-setu-webhook-secret");
+  return timingSafeEqual(bearer || explicit || "", env.SETU_WEBHOOK_SECRET);
+}
+
+async function ingestSetuData(db, connection, payload) {
+  let imported = 0, merged = 0;
+  for (const input of extractDepositTransactions(payload).slice(0, 5000)) {
+    const seen = await db.prepare("SELECT transaction_id FROM aa_transaction_refs WHERE provider='setu' AND external_ref=? AND user_id=?").bind(input.externalRef, connection.user_id).first();
+    if (seen) continue;
+    const duplicate = await verifiedDuplicate(db, connection.user_id, { ...input, timeVerified: true }, "setu-aa");
+    let transactionId;
+    if (duplicate) { transactionId = await mergeVerifiedDuplicate(db, connection.user_id, duplicate, { ...input, timeVerified: true }, "setu-aa"); merged++; }
+    else {
+      const id = crypto.randomUUID(); const model = { ...input, timeVerified: true, categoryConfidence: 0 };
+      const result = await db.prepare("INSERT OR IGNORE INTO transactions (id,user_id,amount_paise,merchant,description,occurred_at,time_verified,importance_score,dedupe_key,source,account_tag) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id, connection.user_id, input.amountPaise, input.merchant, input.description, input.occurredAt, 1, importance(model), dedupeKey(model), "setu-aa", input.accountTag).run();
+      transactionId = result.meta?.changes ? id : (await db.prepare("SELECT id FROM transactions WHERE user_id=? AND dedupe_key=?").bind(connection.user_id, dedupeKey(model)).first())?.id;
+      if (result.meta?.changes) imported++; else if (transactionId) merged++;
+    }
+    if (transactionId) await db.prepare("INSERT OR IGNORE INTO aa_transaction_refs (provider,external_ref,user_id,consent_id,transaction_id) VALUES ('setu',?,?,?,?)").bind(input.externalRef, connection.user_id, connection.consent_id, transactionId).run();
+  }
+  await db.prepare("UPDATE aa_consents SET last_synced_at=CURRENT_TIMESTAMP,last_error_code='',last_error_message='',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(connection.id).run();
+  return { imported, merged };
+}
+
+async function handleSetuWebhook(request, env) {
+  if (!env.DB) return json({ error: "Database binding unavailable" }, 503);
+  await ensureSchema(env.DB);
+  const rawBody = await request.text();
+  if (!(await verifySetuWebhook(request, env, rawBody))) return json({ error: "Invalid webhook signature" }, 401);
+  let payload; try { payload = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const consentId = String(payload.consentId || ""); if (!consentId) return json({ error: "consentId is required" }, 400);
+  const connection = await env.DB.prepare("SELECT * FROM aa_consents WHERE consent_id=?").bind(consentId).first();
+  if (!connection) return json({ received: true, matched: false });
+  const eventType = String(payload.type || "UNKNOWN").slice(0, 80); const status = String(payload.data?.status || payload.status || "").toUpperCase().slice(0, 40);
+  const eventId = String(payload.notificationId || `${consentId}:${eventType}:${payload.timestamp || await sha256(rawBody)}`).slice(0, 240);
+  const inserted = await env.DB.prepare("INSERT OR IGNORE INTO aa_events (event_id,consent_id,event_type,status) VALUES (?,?,?,?)").bind(eventId, consentId, eventType, status).run();
+  if (!inserted.meta?.changes) return json({ received: true, duplicate: true });
+  try {
+    if (eventType === "CONSENT_STATUS_UPDATE") {
+      const accounts = (Array.isArray(payload.data?.detail?.accounts) ? payload.data.detail.accounts : []).map((account) => ({ maskedAccNumber: account.maskedAccNumber || "", accType: account.accType || "", fipId: account.fipId || "" }));
+      const effectiveStatus = status || (payload.success === false ? "PENDING" : connection.status);
+      await env.DB.prepare("UPDATE aa_consents SET status=?,consent_url=CASE WHEN ? IN ('ACTIVE','REJECTED','REVOKED','EXPIRED') THEN '' ELSE consent_url END,accounts_json=CASE WHEN ?<>'[]' THEN ? ELSE accounts_json END,last_error_code=?,last_error_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(effectiveStatus, effectiveStatus, JSON.stringify(accounts), JSON.stringify(accounts), String(payload.error?.code || "").slice(0, 100), String(payload.error?.message || "").slice(0, 240), connection.id).run();
+    }
+    let ingestion = null;
+    if (eventType === "FI_DATA_READY" && ["PARTIAL", "COMPLETED"].includes(status)) ingestion = await ingestSetuData(env.DB, connection, payload);
+    await audit(env.DB, connection.user_id, "aa.webhook.received", "aa_consent", connection.id, { eventType, status, ingestion });
+    return json({ received: true, ingestion });
+  } catch (error) {
+    await env.DB.prepare("DELETE FROM aa_events WHERE event_id=?").bind(eventId).run();
+    await env.DB.prepare("UPDATE aa_consents SET last_error_code='PROCESSING_ERROR',last_error_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(String(error.message || "Webhook processing failed").slice(0, 240), connection.id).run();
+    return json({ error: "Webhook processing failed" }, 500);
+  }
+}
+
 async function processReminders(env) {
   const users = await env.DB.prepare("SELECT id FROM users").all();
   let scheduled = 0;
@@ -606,6 +792,7 @@ async function processReminders(env) {
 async function handleApi(request, env, url) {
   if (!env.DB) return json({ error: "Database binding unavailable" }, 503);
   await ensureSchema(env.DB);
+  if (request.method === "POST" && url.pathname === "/api/setu/webhook") return handleSetuWebhook(request, env);
   if (request.method === "POST" && url.pathname === "/api/internal/run-reminders") {
     if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
     return json(await processReminders(env));
@@ -624,6 +811,10 @@ async function handleApi(request, env, url) {
   if (request.method === "GET" && url.pathname === "/api/mobile/authorize") return authorizeMobile(env, user, url);
   if (request.method === "GET" && url.pathname === "/api/mobile/devices") { const rows = await env.DB.prepare("SELECT id,device_name,created_at,last_used_at FROM mobile_sessions WHERE user_id=? AND revoked_at IS NULL ORDER BY last_used_at DESC").bind(user.id).all(); return json({ devices: rows.results }); }
   if (request.method === "GET" && url.pathname === "/api/bootstrap") return json(await bootstrap(env.DB, user, url));
+  if (request.method === "GET" && url.pathname === "/api/bank-connections") return json({ configured: setuConfig(env).configured, connections: await listBankConnections(env.DB, user.id) });
+  if (request.method === "POST" && url.pathname === "/api/bank-connections/setu/consents") return createSetuConsent(env, user, request, await request.json());
+  if (request.method === "GET" && url.pathname === "/api/money-plan") return json({ plan: await getMoneyPlan(env.DB, user, url.searchParams.get("month")) });
+  if (request.method === "PUT" && url.pathname === "/api/money-plan") return saveMoneyPlan(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/payment-accounts") return json({ accounts: await listPaymentAccounts(env.DB, user.id) });
   if (request.method === "POST" && url.pathname === "/api/payment-accounts") return savePaymentAccount(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/loans") return json({ loans: await listLoans(env.DB,user.id) });
@@ -638,9 +829,13 @@ async function handleApi(request, env, url) {
   if (request.method === "PUT" && url.pathname === "/api/preferences") return savePreferences(env.DB, user, await request.json());
   if (request.method === "GET" && url.pathname === "/api/export") {
     const data = await env.DB.prepare("SELECT amount_paise,merchant,description,occurred_at,time_verified,category,review_status,context,source,account_tag,loan_id,emi_number,principal_component_paise,interest_component_paise FROM transactions WHERE user_id=? ORDER BY occurred_at DESC").bind(user.id).all();
-    return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results, loans:await listLoans(env.DB,user.id), paymentAccounts:await listPaymentAccounts(env.DB,user.id) });
+    const plans = await env.DB.prepare("SELECT month,income_paise,planned_savings_paise,fixed_costs_paise,intention,reflection,updated_at FROM monthly_money_plans WHERE user_id=? ORDER BY month DESC").bind(user.id).all();
+    return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results, loans:await listLoans(env.DB,user.id), paymentAccounts:await listPaymentAccounts(env.DB,user.id), moneyPlans: plans.results, bankConnections: await listBankConnections(env.DB, user.id) });
   }
   if (request.method === "DELETE" && url.pathname === "/api/account") {
+    const consents = await env.DB.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED')").bind(user.id).all();
+    if (consents.results.length && !setuConfig(env).configured) return json({ error: "Bank consent must be revoked before this account can be deleted. Setu is temporarily unavailable; try again later.", code: "CONSENT_REVOCATION_REQUIRED" }, 503);
+    for (const consent of consents.results) { const response = await revokeSetuConsent(env, user, consent.id); if (!response.ok) return response; }
     await env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
     return json({ deleted: true });
   }
@@ -649,6 +844,9 @@ async function handleApi(request, env, url) {
   if (request.method === "PUT" && accountMatch) return savePaymentAccount(env.DB,user,{...(await request.json()),id:accountMatch[1]});
   if (request.method === "DELETE" && accountMatch) return deletePaymentAccount(env.DB, user, accountMatch[1]);
   const loanMatch=url.pathname.match(/^\/api\/loans\/([^/]+)$/); if(request.method==="PUT"&&loanMatch)return saveLoan(env.DB,user,{...(await request.json()),id:loanMatch[1]}); if(request.method==="DELETE"&&loanMatch)return deleteLoan(env.DB,user,loanMatch[1]);
+  const bankConnectionMatch = url.pathname.match(/^\/api\/bank-connections\/([^/]+)\/(refresh|revoke)$/);
+  if (request.method === "POST" && bankConnectionMatch?.[2] === "refresh") return refreshSetuConsent(env, user, bankConnectionMatch[1]);
+  if (request.method === "POST" && bankConnectionMatch?.[2] === "revoke") return revokeSetuConsent(env, user, bankConnectionMatch[1]);
   const categoryMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)\/category$/);
   if (request.method === "PATCH" && categoryMatch) return setTransactionCategory(env.DB, user, categoryMatch[1], await request.json());
   if (request.method === "PATCH" && transactionMatch) return updateTransaction(env.DB, user, transactionMatch[1], await request.json());
