@@ -41,6 +41,27 @@ final class PaymentAccount {
     var displayName: String { lastFour.isEmpty ? name : "\(name) · •••• \(lastFour)" }
 }
 
+@Model
+final class MonthlyMoneyPlan {
+    @Attribute(.unique) var month: String
+    var income: Double
+    var plannedSavings: Double
+    var fixedCosts: Double
+    var intention: String
+    var reflection: String
+    var spent: Double
+    var needsSync: Bool
+    var updatedAt: Date
+
+    init(month: String, income: Double = 0, plannedSavings: Double = 0, fixedCosts: Double = 0, intention: String = "", reflection: String = "", spent: Double = 0, needsSync: Bool = false, updatedAt: Date = .now) {
+        self.month = month; self.income = income; self.plannedSavings = plannedSavings; self.fixedCosts = fixedCosts
+        self.intention = intention; self.reflection = reflection; self.spent = spent; self.needsSync = needsSync; self.updatedAt = updatedAt
+    }
+
+    var available: Double { max(0, income - plannedSavings - fixedCosts) }
+    var remaining: Double { available - spent }
+}
+
 enum PaisaTheme {
     private static func adaptive(light: UIColor, dark: UIColor) -> Color { Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light }) }
     static let canvas = adaptive(light: UIColor(red: 246 / 255, green: 243 / 255, blue: 236 / 255, alpha: 1), dark: UIColor(red: 16 / 255, green: 24 / 255, blue: 21 / 255, alpha: 1))

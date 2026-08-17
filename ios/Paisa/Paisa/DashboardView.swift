@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct DashboardView: View {
+    @EnvironmentObject private var sync: SyncManager
     @Query(filter: #Predicate<PaisaTransaction> { !$0.isDeleted }, sort: \PaisaTransaction.occurredAt, order: .reverse) private var transactions: [PaisaTransaction]
     @State private var showReview = false
     @State private var showImport = false
@@ -24,6 +25,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                freshness
                 PaisaDateWindowPicker(selection: $dateWindow, customFrom: $customFrom, customTo: $customTo, title: "Dashboard activity")
                 hero
                 metrics
@@ -50,6 +52,21 @@ struct DashboardView: View {
         .sheet(isPresented: $showReview) { NavigationStack { ReviewView(transactions: unresolved) } }
         .sheet(isPresented: $showImport) { StatementImportView() }
         .onReceive(NotificationCenter.default.publisher(for: .paisaOpenReview)) { _ in if !unresolved.isEmpty { showReview = true } }
+    }
+
+    private var freshness: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: sync.bankConnections.contains(where: { $0.status == "ACTIVE" }) ? "building.columns.fill" : (sync.connected ? "checkmark.icloud" : "iphone"))
+                .foregroundStyle(PaisaTheme.forest)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(sync.bankConnections.contains(where: { $0.status == "ACTIVE" }) ? "Automatic bank updates are on" : (sync.connected ? "Cloud sync is on" : "Stored on this iPhone"))
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(PaisaTheme.ink)
+                Text(sync.bankConnections.contains(where: { $0.status == "ACTIVE" }) ? "Bank data arrives periodically. Recent payments may still be pending." : sync.status)
+                    .font(.caption).foregroundStyle(PaisaTheme.muted)
+            }
+            Spacer()
+        }
+        .padding(13).background(PaisaTheme.surface, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(PaisaTheme.line))
     }
 
     private var header: some View {

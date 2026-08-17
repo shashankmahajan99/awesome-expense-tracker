@@ -188,8 +188,10 @@ struct SettingsView: View {
     @EnvironmentObject private var notifications: NotificationManager
     private let webURL = URL(string: "https://paisa-daily-inbox.shashankmahajan.chatgpt.site")!
     @State private var confirmDelete = false
+    @State private var confirmDeleteAccount = false
     @State private var dataMessage = ""
     @State private var showAccountManager = false
+    @State private var showBankConnections = false
     @State private var showPaytmSetup = false
     @State private var showShareSetup = false
     @Query(sort: \PaymentAccount.name) private var paymentAccounts: [PaymentAccount]
@@ -218,6 +220,13 @@ struct SettingsView: View {
                     Button("Sign in to sync") { Task { await sync.beginPairing() } }.disabled(sync.isWorking)
                 }
                 if sync.isWorking && sync.syncTotal == 0 { ProgressView("Checking Paisa Inbox…") }
+            }
+            Section("Automatic bank updates") {
+                Button { showBankConnections = true } label: {
+                    Label("Bank connections", systemImage: "building.columns")
+                }
+                Text("Connect through Setu’s RBI-regulated Account Aggregator ecosystem. Review the purpose and exact data scope before consent; Paisa never receives bank credentials or an OTP.")
+                    .font(.caption).foregroundStyle(PaisaTheme.muted)
             }
             Section("Daily review") {
                 Label(notifications.statusText, systemImage: notifications.isEnabledForPaisa ? "bell.badge.fill" : "bell.slash")
@@ -258,7 +267,10 @@ struct SettingsView: View {
                 Label("Statements are parsed on device", systemImage: "lock.shield")
                 Label("Sync tokens stay in Keychain", systemImage: "key")
                 Link("Open web dashboard", destination: webURL)
+                Link("Privacy policy", destination: webURL.appending(path: "privacy"))
+                Link("Terms", destination: webURL.appending(path: "terms"))
                 Button("Delete all transactions", role: .destructive) { confirmDelete = true }.disabled(!sync.connected)
+                Button("Delete Paisa account", role: .destructive) { confirmDeleteAccount = true }.disabled(!sync.connected)
                 if sync.isWorking { Text("Deleting will stop the active sync first, then remove data everywhere.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !sync.connected { Text("Connect to Paisa Inbox before deleting so the same data is removed from every device.").font(.caption).foregroundStyle(PaisaTheme.muted) }
                 if !dataMessage.isEmpty { Text(dataMessage).font(.caption).foregroundStyle(PaisaTheme.muted) }
@@ -275,9 +287,17 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) { }
             Button("Delete everywhere", role: .destructive) { Task { do { let count = try await sync.deleteCloudTransactions(context: context); dataMessage = "Deleted \(count) transaction\(count == 1 ? "" : "s") everywhere." } catch { dataMessage = error.localizedDescription } } }
         } message: { Text("This permanently removes cloud and local transaction history. Your sign-in and preferences remain.") }
+        .alert("Delete your Paisa account?", isPresented: $confirmDeleteAccount) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete account", role: .destructive) {
+                Task { do { try await sync.deleteAccount(context: context); dataMessage = "Your Paisa account and local data were deleted." } catch { dataMessage = error.localizedDescription } }
+            }
+        } message: { Text("Paisa will first revoke every active bank consent, then permanently delete cloud transactions, plans, preferences and signed-in devices. Local Paisa data on this iPhone will also be removed. This cannot be undone.") }
         .sheet(isPresented: $showAccountManager) { PaymentAccountManager() }
+        .sheet(isPresented: $showBankConnections) { NavigationStack { BankConnectionsView() } }
         .sheet(isPresented: $showPaytmSetup) { PaytmAutomationSetupView() }
         .sheet(isPresented: $showShareSetup) { ShareSetupView() }
+        .onReceive(NotificationCenter.default.publisher(for: .paisaOpenBankConnections)) { _ in showBankConnections = true }
     }
 }
 

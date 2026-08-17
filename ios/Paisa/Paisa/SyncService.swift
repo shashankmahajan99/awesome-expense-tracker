@@ -44,6 +44,58 @@ private struct MobileSyncPreferences: Decodable { let reviewTime: String }
 
 private struct APIError: Decodable { let error: String }
 private struct ResetResponse: Decodable { let deleted: Int }
+private struct DeleteAccountResponse: Decodable { let deleted: Bool }
+
+struct BankConnection: Decodable, Identifiable {
+    struct LinkedAccount: Decodable, Identifiable {
+        let maskedAccNumber: String
+        let accType: String
+        let fipId: String
+        var id: String { "\(fipId):\(maskedAccNumber)" }
+    }
+    let id: String
+    let provider: String
+    let status: String
+    let mobileLastFour: String
+    let consentUrl: String
+    let purpose: String
+    let dataRequested: [String]
+    let dataRangeFrom: String?
+    let dataRangeTo: String?
+    let expiresAt: String?
+    let frequency: String
+    let dataLife: String
+    let accounts: [LinkedAccount]
+    let lastSyncedAt: String?
+    let lastError: String
+
+    var isCurrent: Bool { ["ACTIVE", "PENDING", "INITIATED", "PAUSED"].contains(status) }
+}
+
+private struct BankConnectionsResponse: Decodable { let configured: Bool; let connections: [BankConnection] }
+private struct BankConnectionMutationResponse: Decodable { let connection: BankConnection; let consentUrl: String? }
+private struct CreateBankConsentPayload: Encodable { let mobile: String }
+
+private struct MoneyPlanWire: Decodable {
+    let month: String
+    let incomePaise: Int64
+    let plannedSavingsPaise: Int64
+    let fixedCostsPaise: Int64
+    let availablePaise: Int64
+    let spentPaise: Int64
+    let remainingPaise: Int64
+    let intention: String
+    let reflection: String
+}
+private struct MoneyPlanResponse: Decodable { let plan: MoneyPlanWire }
+private struct MoneyPlanPayload: Encodable {
+    let month: String
+    let income: Double
+    let plannedSavings: Double
+    let fixedCosts: Double
+    let intention: String
+    let reflection: String
+}
 
 @MainActor
 final class SyncManager: ObservableObject {
@@ -56,6 +108,10 @@ final class SyncManager: ObservableObject {
     @Published private(set) var syncCancellationRequested = false
     @Published private(set) var reviewHour = 21
     @Published private(set) var reviewMinute = 30
+    @Published private(set) var bankConnections: [BankConnection] = []
+    @Published private(set) var bankConnectionsConfigured = false
+    @Published private(set) var bankStatus = "Sign in to connect a bank"
+    @Published private(set) var bankLoading = false
 
     private let tokenService = "com.shashankmahajan.paisa.sync"
     private let tokenAccount = "mobile-access-token"
@@ -159,6 +215,98 @@ final class SyncManager: ObservableObject {
         syncCompleted = 1
         status = "Deleted \(response.deleted) cloud transaction\(response.deleted == 1 ? "" : "s")"
         return response.deleted
+    }
+
+    func deleteAccount(context: ModelContext) async throws {
+        guard connected else { throw SyncFailure.message("Connect this iPhone before deleting your account") }
+        if isWorking { stopSync(); while isWorking { try await Task.sleep(for: .milliseconds(40)) } }
+        isWorking = true; status = "Revoking bank consent and deleting your account…"
+        defer { isWorking = false }
+        let _: DeleteAccountResponse = try await request("/api/mobile/account", method: "DELETE", body: Optional<String>.none, authenticated: true)
+        try context.fetch(FetchDescriptor<PaisaTransaction>()).forEach(context.delete)
+        try context.fetch(FetchDescriptor<PaymentAccount>()).forEach(context.delete)
+        try context.fetch(FetchDescriptor<MonthlyMoneyPlan>()).forEach(context.delete)
+        try context.save()
+        Self.deleteKeychain(service: tokenService, account: tokenAccount)
+        Self.deleteKeychain(service: tokenService, account: sitesTokenAccount)
+        bankConnections = []; connected = false; lastSynced = nil
+        status = "Account deleted — this iPhone is now local only"
+    }
+
+    func loadBankConnections() async {
+        guard connected else { bankStatus = "Sign in to connect a bank"; return }
+        bankLoading = true; defer { bankLoading = false }
+        do {
+            let response: BankConnectionsResponse = try await request("/api/mobile/bank-connections", method: "GET", body: Optional<String>.none, authenticated: true)
+            bankConnectionsConfigured = response.configured; bankConnections = response.connections
+            if !response.configured { bankStatus = "Setu is being prepared for this Paisa environment" }
+            else if let active = response.connections.first(where: { $0.status == "ACTIVE" }) { bankStatus = active.lastSyncedAt == nil ? "Connected — waiting for the first bank update" : "Connected — bank data updates periodically" }
+            else if response.connections.contains(where: { $0.isCurrent }) { bankStatus = "Consent needs your attention" }
+            else { bankStatus = "No bank connected" }
+        } catch { bankStatus = error.localizedDescription }
+    }
+
+    func createBankConsent(mobile: String) async -> URL? {
+        guard connected else { bankStatus = "Sign in before connecting a bank"; return nil }
+        bankLoading = true; defer { bankLoading = false }
+        do {
+            let response: BankConnectionMutationResponse = try await request("/api/mobile/bank-connections/setu/consents", method: "POST", body: CreateBankConsentPayload(mobile: mobile), authenticated: true)
+            bankConnections.removeAll { $0.id == response.connection.id }; bankConnections.insert(response.connection, at: 0)
+            bankStatus = "Complete consent in Setu’s secure flow"
+            return URL(string: response.consentUrl ?? response.connection.consentUrl)
+        } catch { bankStatus = error.localizedDescription; return nil }
+    }
+
+    func refreshBankConnection(_ connection: BankConnection) async {
+        guard connected else { return }
+        bankLoading = true; defer { bankLoading = false }
+        do {
+            let response: BankConnectionMutationResponse = try await request("/api/mobile/bank-connections/\(connection.id)/refresh", method: "POST", body: Optional<String>.none, authenticated: true)
+            replaceBankConnection(response.connection); bankStatus = response.connection.status == "ACTIVE" ? "Connected — bank data updates periodically" : "Consent status: \(response.connection.status.capitalized)"
+        } catch { bankStatus = error.localizedDescription }
+    }
+
+    func revokeBankConnection(_ connection: BankConnection) async {
+        guard connected else { return }
+        bankLoading = true; defer { bankLoading = false }
+        do {
+            let response: BankConnectionMutationResponse = try await request("/api/mobile/bank-connections/\(connection.id)/revoke", method: "POST", body: Optional<String>.none, authenticated: true)
+            replaceBankConnection(response.connection); bankStatus = "Bank consent revoked"
+        } catch { bankStatus = error.localizedDescription }
+    }
+
+    func loadMoneyPlan(month: String, context: ModelContext) async {
+        guard connected else { return }
+        do {
+            let response: MoneyPlanResponse = try await request("/api/mobile/money-plan?month=\(month)", method: "GET", body: Optional<String>.none, authenticated: true)
+            apply(response.plan, context: context)
+        } catch { status = "Your local plan is available; cloud refresh failed: \(error.localizedDescription)" }
+    }
+
+    func saveMoneyPlan(_ plan: MonthlyMoneyPlan, context: ModelContext) async {
+        plan.needsSync = true; plan.updatedAt = .now; try? context.save()
+        guard connected else { status = "Plan saved on this iPhone — sign in to sync it"; return }
+        do {
+            let payload = MoneyPlanPayload(month: plan.month, income: plan.income, plannedSavings: plan.plannedSavings, fixedCosts: plan.fixedCosts, intention: plan.intention, reflection: plan.reflection)
+            let response: MoneyPlanResponse = try await request("/api/mobile/money-plan", method: "PUT", body: payload, authenticated: true)
+            apply(response.plan, context: context); status = "Monthly plan saved everywhere"
+        } catch { status = "Plan saved on this iPhone; cloud sync will retry later" }
+    }
+
+    private func replaceBankConnection(_ connection: BankConnection) {
+        if let index = bankConnections.firstIndex(where: { $0.id == connection.id }) { bankConnections[index] = connection }
+        else { bankConnections.insert(connection, at: 0) }
+    }
+
+    private func apply(_ remote: MoneyPlanWire, context: ModelContext) {
+        let month = remote.month
+        let descriptor = FetchDescriptor<MonthlyMoneyPlan>(predicate: #Predicate { $0.month == month })
+        let plan = (try? context.fetch(descriptor).first) ?? MonthlyMoneyPlan(month: month)
+        if plan.modelContext == nil { context.insert(plan) }
+        plan.income = Double(remote.incomePaise) / 100; plan.plannedSavings = Double(remote.plannedSavingsPaise) / 100
+        plan.fixedCosts = Double(remote.fixedCostsPaise) / 100; plan.spent = Double(remote.spentPaise) / 100
+        plan.intention = remote.intention; plan.reflection = remote.reflection; plan.needsSync = false; plan.updatedAt = .now
+        try? context.save()
     }
 
     func importSharedReceipts(context: ModelContext) {
@@ -321,6 +469,11 @@ final class SyncManager: ObservableObject {
         try context.save()
         let savedAccounts = try context.fetch(FetchDescriptor<PaymentAccount>())
         SharedPaymentAccountDirectory.save(savedAccounts.map { SharedPaymentAccount(id: $0.id, name: $0.name, kind: $0.kind, institution: $0.institution, lastFour: $0.lastFour) })
+        let pendingPlans = (try? context.fetch(FetchDescriptor<MonthlyMoneyPlan>()))?.filter(\.needsSync) ?? []
+        for plan in pendingPlans {
+            let payload = MoneyPlanPayload(month: plan.month, income: plan.income, plannedSavings: plan.plannedSavings, fixedCosts: plan.fixedCosts, intention: plan.intention, reflection: plan.reflection)
+            if let response: MoneyPlanResponse = try? await request("/api/mobile/money-plan", method: "PUT", body: payload, authenticated: true) { apply(response.plan, context: context) }
+        }
         if let components = response.preferences?.reviewTime.split(separator: ":"), components.count == 2,
            let hour = Int(components[0]), let minute = Int(components[1]), (0...23).contains(hour), (0...59).contains(minute) {
             reviewHour = hour; reviewMinute = minute
@@ -334,7 +487,10 @@ final class SyncManager: ObservableObject {
     }
 
     private func request<Response: Decodable, Body: Encodable>(_ path: String, method: String, body: Body?, authenticated: Bool) async throws -> Response {
-        var request = URLRequest(url: paisaAPIBaseURL.appending(path: path)); request.httpMethod = method; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let pieces = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        var components = URLComponents(url: paisaAPIBaseURL.appending(path: String(pieces[0])), resolvingAgainstBaseURL: false)!
+        if pieces.count == 2 { components.percentEncodedQuery = String(pieces[1]) }
+        var request = URLRequest(url: components.url!); request.httpMethod = method; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let body { request.httpBody = try JSONEncoder().encode(body) }
         if authenticated {
             guard let token = Self.readKeychain(service: tokenService, account: tokenAccount) else { connected = false; throw SyncFailure.message("Connect this iPhone before syncing") }

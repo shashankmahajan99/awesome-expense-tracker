@@ -7,78 +7,102 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0A0000010000000000000001 /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000001 /* SharedInbox.swift */; };
-		0A0000010000000000000002 /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000001 /* SharedInbox.swift */; };
-		0A0000010000000000000003 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000003 /* ShareViewController.swift */; };
-		0A0000010000000000000004 /* PaisaShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000005 /* PaisaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		0A0000010000000000000005 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0000100000000000000007 /* NotificationService.swift */; };
 		1A75DFA27A0D97EA8004DA25 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9681764243E7CC608F8FF25 /* Models.swift */; };
+		1F3BD2EB88629017BEFFF701 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2C2BA272F9CDEA65EF05ADC /* NotificationService.swift */; };
 		2728D655504C72F5C8A76275 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FD3A663EBA89540EABEA1A /* DashboardView.swift */; };
+		3742319D46FF0E6845187DDF /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A354967DC287F8D49E29004 /* SharedInbox.swift */; };
+		41CA261F03314332C40A8E5B /* PaisaShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BEEC1ED52E4BC217F45CBF4E /* PaisaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		430CC482B36953EF6F2C738D /* BankConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04905221C2F7213489DC2164 /* BankConnectionsView.swift */; };
+		4FB85FB1A0B1D400401EAF47 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89114A519C4FC31B0589065C /* ShareViewController.swift */; };
 		5CCD24012DC587F1C85A1AA7 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */; };
 		61DB449BCDCCBFD969549E5E /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C755540DECB7CF711E6AA700 /* SyncService.swift */; };
 		7E034746E975AA523609E92F /* PaisaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442737AF976C78C2494E6621 /* PaisaApp.swift */; };
+		B80D3681FF3EB09183B1EA4E /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64793EF07BA30A3EF077BF66 /* Shortcuts.swift */; };
 		C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF5760BD7C0152184603E97 /* TransactionsView.swift */; };
+		DA1C40FF15C0A6EC6E384015 /* MoneyPlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7466B4CDFD1ECB4F2FFC04E8 /* MoneyPlanView.swift */; };
+		E565B62703BFC414768ECB8C /* SharedInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A354967DC287F8D49E29004 /* SharedInbox.swift */; };
 		FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */; };
-		AA0000010000000000000001 /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000100000000000000001 /* Shortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		0A0000200000000000000001 /* PBXContainerItemProxy */ = {
+		78C336FCC8C2C87E901720F1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 24087528233AC718412587DA /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 0A0000500000000000000001;
+			remoteGlobalIDString = 6F32AF6BCC5A67C257B9FA81;
 			remoteInfo = PaisaShare;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		0A0000300000000000000001 /* Embed App Extensions */ = {
+		496B979FB2836C069BFFD329 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				0A0000010000000000000004 /* PaisaShare.appex in Embed App Extensions */,
+				41CA261F03314332C40A8E5B /* PaisaShare.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0A0000100000000000000001 /* SharedInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedInbox.swift; sourceTree = "<group>"; };
-		0A0000100000000000000002 /* Paisa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Paisa.entitlements; sourceTree = "<group>"; };
-		0A0000100000000000000003 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		0A0000100000000000000004 /* PaisaShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PaisaShare.entitlements; sourceTree = "<group>"; };
-		0A0000100000000000000005 /* PaisaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PaisaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		0A0000100000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		0A0000100000000000000007 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		04905221C2F7213489DC2164 /* BankConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankConnectionsView.swift; sourceTree = "<group>"; };
 		442737AF976C78C2494E6621 /* PaisaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaisaApp.swift; sourceTree = "<group>"; };
+		4A354967DC287F8D49E29004 /* SharedInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedInbox.swift; sourceTree = "<group>"; };
 		505C5411F09EF4DD6AACFFEE /* Paisa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Paisa.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		612BE6422224F70F50B17A87 /* Paisa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Paisa.entitlements; sourceTree = "<group>"; };
+		64793EF07BA30A3EF077BF66 /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
 		66FD3A663EBA89540EABEA1A /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		74666A8A4ED2B11AB0976D9C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		7466B4CDFD1ECB4F2FFC04E8 /* MoneyPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyPlanView.swift; sourceTree = "<group>"; };
 		8703600E03D7E98ECE224E16 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		89114A519C4FC31B0589065C /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementImportView.swift; sourceTree = "<group>"; };
 		ABF5760BD7C0152184603E97 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
+		BEEC1ED52E4BC217F45CBF4E /* PaisaShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PaisaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C755540DECB7CF711E6AA700 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		D9681764243E7CC608F8FF25 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
-		AA0000100000000000000001 /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
+		F2C2BA272F9CDEA65EF05ADC /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		F36CE49B84CBA60FFB8E2780 /* PaisaShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PaisaShare.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		47FCF9D790E48470E9D1DE95 /* PaisaShare */ = {
+			isa = PBXGroup;
+			children = (
+				74666A8A4ED2B11AB0976D9C /* Info.plist */,
+				F36CE49B84CBA60FFB8E2780 /* PaisaShare.entitlements */,
+				89114A519C4FC31B0589065C /* ShareViewController.swift */,
+			);
+			path = PaisaShare;
+			sourceTree = "<group>";
+		};
+		9B6D3D474117E7FC906077DF /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				4A354967DC287F8D49E29004 /* SharedInbox.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		AF3E565C1B9CFCFD149FE856 /* Paisa */ = {
 			isa = PBXGroup;
 			children = (
+				04905221C2F7213489DC2164 /* BankConnectionsView.swift */,
 				66FD3A663EBA89540EABEA1A /* DashboardView.swift */,
 				8703600E03D7E98ECE224E16 /* Info.plist */,
 				D9681764243E7CC608F8FF25 /* Models.swift */,
-				0A0000100000000000000007 /* NotificationService.swift */,
-				0A0000100000000000000002 /* Paisa.entitlements */,
+				7466B4CDFD1ECB4F2FFC04E8 /* MoneyPlanView.swift */,
+				F2C2BA272F9CDEA65EF05ADC /* NotificationService.swift */,
+				612BE6422224F70F50B17A87 /* Paisa.entitlements */,
 				442737AF976C78C2494E6621 /* PaisaApp.swift */,
 				ED1CBDA3C48F97404FAF1EBA /* ReviewView.swift */,
+				64793EF07BA30A3EF077BF66 /* Shortcuts.swift */,
 				8AFA6C5E7E3D86FDAD47524F /* StatementImportView.swift */,
-				AA0000100000000000000001 /* Shortcuts.swift */,
 				C755540DECB7CF711E6AA700 /* SyncService.swift */,
 				ABF5760BD7C0152184603E97 /* TransactionsView.swift */,
 			);
@@ -89,8 +113,8 @@
 			isa = PBXGroup;
 			children = (
 				AF3E565C1B9CFCFD149FE856 /* Paisa */,
-				0A0000400000000000000001 /* Shared */,
-				0A0000400000000000000002 /* PaisaShare */,
+				47FCF9D790E48470E9D1DE95 /* PaisaShare */,
+				9B6D3D474117E7FC906077DF /* Shared */,
 				E40C9FD9F8A8F04C64476B2A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -99,56 +123,19 @@
 			isa = PBXGroup;
 			children = (
 				505C5411F09EF4DD6AACFFEE /* Paisa.app */,
-				0A0000100000000000000005 /* PaisaShare.appex */,
+				BEEC1ED52E4BC217F45CBF4E /* PaisaShare.appex */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		0A0000400000000000000001 /* Shared */ = {
-			isa = PBXGroup;
-			children = (
-				0A0000100000000000000001 /* SharedInbox.swift */,
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
-		0A0000400000000000000002 /* PaisaShare */ = {
-			isa = PBXGroup;
-			children = (
-				0A0000100000000000000006 /* Info.plist */,
-				0A0000100000000000000004 /* PaisaShare.entitlements */,
-				0A0000100000000000000003 /* ShareViewController.swift */,
-			);
-			path = PaisaShare;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F820DE502A62CF8BA2698CD0 /* Paisa */ = {
+		6F32AF6BCC5A67C257B9FA81 /* PaisaShare */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 4DCF02DAC527C2510BBF8469 /* Build configuration list for PBXNativeTarget "Paisa" */;
+			buildConfigurationList = 1434A153677263BAADB9E3FF /* Build configuration list for PBXNativeTarget "PaisaShare" */;
 			buildPhases = (
-				6DE54DB85148C21BE1C12863 /* Sources */,
-				0A0000300000000000000001 /* Embed App Extensions */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				0A0000600000000000000001 /* PBXTargetDependency */,
-			);
-			name = Paisa;
-			packageProductDependencies = (
-			);
-			productName = Paisa;
-			productReference = 505C5411F09EF4DD6AACFFEE /* Paisa.app */;
-			productType = "com.apple.product-type.application";
-		};
-		0A0000500000000000000001 /* PaisaShare */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 0A0000900000000000000001 /* Build configuration list for PBXNativeTarget "PaisaShare" */;
-			buildPhases = (
-				0A0000700000000000000001 /* Sources */,
+				7601E086C0BF301B54E2AB26 /* Sources */,
 			);
 			buildRules = (
 			);
@@ -158,8 +145,27 @@
 			packageProductDependencies = (
 			);
 			productName = PaisaShare;
-			productReference = 0A0000100000000000000005 /* PaisaShare.appex */;
+			productReference = BEEC1ED52E4BC217F45CBF4E /* PaisaShare.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		F820DE502A62CF8BA2698CD0 /* Paisa */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4DCF02DAC527C2510BBF8469 /* Build configuration list for PBXNativeTarget "Paisa" */;
+			buildPhases = (
+				6DE54DB85148C21BE1C12863 /* Sources */,
+				496B979FB2836C069BFFD329 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7F73682A592278444CD7CC7A /* PBXTargetDependency */,
+			);
+			name = Paisa;
+			packageProductDependencies = (
+			);
+			productName = Paisa;
+			productReference = 505C5411F09EF4DD6AACFFEE /* Paisa.app */;
+			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
@@ -170,7 +176,7 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					0A0000500000000000000001 = {
+					6F32AF6BCC5A67C257B9FA81 = {
 						DevelopmentTeam = QWXY4T9SKT;
 						ProvisioningStyle = Automatic;
 					};
@@ -195,7 +201,7 @@
 			projectRoot = "";
 			targets = (
 				F820DE502A62CF8BA2698CD0 /* Paisa */,
-				0A0000500000000000000001 /* PaisaShare */,
+				6F32AF6BCC5A67C257B9FA81 /* PaisaShare */,
 			);
 		};
 /* End PBXProject section */
@@ -205,39 +211,62 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0A0000010000000000000001 /* SharedInbox.swift in Sources */,
-				0A0000010000000000000005 /* NotificationService.swift in Sources */,
+				430CC482B36953EF6F2C738D /* BankConnectionsView.swift in Sources */,
 				2728D655504C72F5C8A76275 /* DashboardView.swift in Sources */,
 				1A75DFA27A0D97EA8004DA25 /* Models.swift in Sources */,
+				DA1C40FF15C0A6EC6E384015 /* MoneyPlanView.swift in Sources */,
+				1F3BD2EB88629017BEFFF701 /* NotificationService.swift in Sources */,
 				7E034746E975AA523609E92F /* PaisaApp.swift in Sources */,
 				5CCD24012DC587F1C85A1AA7 /* ReviewView.swift in Sources */,
+				3742319D46FF0E6845187DDF /* SharedInbox.swift in Sources */,
+				B80D3681FF3EB09183B1EA4E /* Shortcuts.swift in Sources */,
 				FBC0CC17A4A63B59BDD36996 /* StatementImportView.swift in Sources */,
 				61DB449BCDCCBFD969549E5E /* SyncService.swift in Sources */,
 				C82B46340307F6EB1E5090E4 /* TransactionsView.swift in Sources */,
-				AA0000010000000000000001 /* Shortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		0A0000700000000000000001 /* Sources */ = {
+		7601E086C0BF301B54E2AB26 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0A0000010000000000000002 /* SharedInbox.swift in Sources */,
-				0A0000010000000000000003 /* ShareViewController.swift in Sources */,
+				4FB85FB1A0B1D400401EAF47 /* ShareViewController.swift in Sources */,
+				E565B62703BFC414768ECB8C /* SharedInbox.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		0A0000600000000000000001 /* PBXTargetDependency */ = {
+		7F73682A592278444CD7CC7A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 0A0000500000000000000001 /* PaisaShare */;
-			targetProxy = 0A0000200000000000000001 /* PBXContainerItemProxy */;
+			target = 6F32AF6BCC5A67C257B9FA81 /* PaisaShare */;
+			targetProxy = 78C336FCC8C2C87E901720F1 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		4769C674B40FF879158C9C78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = PaisaShare/PaisaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				INFOPLIST_FILE = PaisaShare/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.shashankmahajan.paisa.share;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		7156FA7A0A5CC7CFA9AFA5B9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -395,17 +424,14 @@
 			};
 			name = Release;
 		};
-		0A0000800000000000000001 /* Debug */ = {
+		D48CBA8D8485546CD2403907 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = PaisaShare/PaisaShare.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
-				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PaisaShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -413,36 +439,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shashankmahajan.paisa.share;
-				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		0A0000800000000000000002 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = PaisaShare/PaisaShare.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PaisaShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shashankmahajan.paisa.share;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -450,6 +448,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1434A153677263BAADB9E3FF /* Build configuration list for PBXNativeTarget "PaisaShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4769C674B40FF879158C9C78 /* Debug */,
+				D48CBA8D8485546CD2403907 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		14C9BCE8DD88C0C45C2CFDC4 /* Build configuration list for PBXProject "Paisa" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -464,15 +471,6 @@
 			buildConfigurations = (
 				ADD6A27EF7E22DE95EAB5C1A /* Debug */,
 				7156FA7A0A5CC7CFA9AFA5B9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		0A0000900000000000000001 /* Build configuration list for PBXNativeTarget "PaisaShare" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				0A0000800000000000000001 /* Debug */,
-				0A0000800000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

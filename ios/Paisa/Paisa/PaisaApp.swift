@@ -8,12 +8,12 @@ struct PaisaApp: App {
     @StateObject private var notifications = NotificationManager.shared
     var body: some Scene {
         WindowGroup { RootView().environmentObject(sync).environmentObject(notifications) }
-            .modelContainer(for: [PaisaTransaction.self, PaymentAccount.self])
+            .modelContainer(for: [PaisaTransaction.self, PaymentAccount.self, MonthlyMoneyPlan.self])
     }
 }
 
 struct RootView: View {
-    private enum Tab: Hashable { case today, transactions, insights, settings }
+    private enum Tab: Hashable { case today, transactions, plan, insights, settings }
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var sync: SyncManager
@@ -28,6 +28,9 @@ struct RootView: View {
             NavigationStack { TransactionsView() }
                 .tabItem { Label("Transactions", systemImage: "arrow.up.arrow.down") }
                 .tag(Tab.transactions)
+            NavigationStack { MoneyPlanView() }
+                .tabItem { Label("Plan", systemImage: "leaf") }
+                .tag(Tab.plan)
             NavigationStack { InsightsView() }
                 .tabItem { Label("Insights", systemImage: "chart.bar") }
                 .tag(Tab.insights)
@@ -50,6 +53,13 @@ struct RootView: View {
                 selectedTab = .settings
                 Task { await sync.completePairing(callback: url, context: context) }
             }
+            if url.host == "setu-return" {
+                selectedTab = .settings
+                Task {
+                    await sync.loadBankConnections()
+                    NotificationCenter.default.post(name: .paisaOpenBankConnections, object: nil)
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .paisaPushTokenChanged)) { notification in
             guard let token = notification.object as? String else { return }
@@ -64,6 +74,7 @@ struct RootView: View {
         sync.importSharedReceipts(context: context)
         bootstrapPaymentAccounts()
         await sync.syncIfConnected(context: context)
+        if sync.connected { await sync.loadBankConnections() }
         if let transactions = try? context.fetch(FetchDescriptor<PaisaTransaction>()) {
             let unresolved = transactions.filter { !$0.isDeleted && $0.reviewStatus == "unresolved" }
             publishCaptureProfile(transactions)
@@ -99,4 +110,8 @@ struct RootView: View {
         let lastAccount = recent.first { !$0.accountTag.isEmpty }?.accountTag
         SharedCaptureProfileDirectory.save(SharedCaptureProfile(lastAccountName: lastAccount, categoryByMerchant: categoryByMerchant))
     }
+}
+
+extension Notification.Name {
+    static let paisaOpenBankConnections = Notification.Name("paisaOpenBankConnections")
 }

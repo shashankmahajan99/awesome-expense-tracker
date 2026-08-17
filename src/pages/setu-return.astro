@@ -1,0 +1,37 @@
+---
+import BaseHead from "../components/BaseHead.astro";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <BaseHead title="Return to Paisa Inbox" description="Finish your bank connection in the Paisa Inbox app." />
+  </head>
+  <body>
+    <main class="return-card">
+      <div class="mark" aria-hidden="true">P</div>
+      <p class="eyebrow">Bank connection</p>
+      <h1>Return to Paisa Inbox</h1>
+      <p>Your consent response is ready. Paisa will check the status securely; no bank password or OTP is shared with Paisa.</p>
+      <a id="open-app" href="paisa://setu-return">Open Paisa Inbox</a>
+      <p class="fallback">If the app does not open, make sure the latest Paisa Inbox build is installed, then tap the button.</p>
+    </main>
+    <script is:inline>
+      const deepLink = new URL("paisa://setu-return");
+      for (const [key, value] of new URLSearchParams(window.location.search)) deepLink.searchParams.set(key, value);
+      document.querySelector("#open-app")?.setAttribute("href", deepLink.toString());
+      window.location.assign(deepLink.toString());
+    </script>
+  </body>
+</html>
+
+<style>
+  :global(body) { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #f6f3ec; color: #18231f; font-family: ui-rounded, system-ui, sans-serif; }
+  .return-card { max-width: 420px; padding: 32px; border: 1px solid #dbd8cf; border-radius: 28px; background: #fcfaf5; box-shadow: 0 18px 50px rgb(0 0 0 / 7%); }
+  .mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: #e5c26f; color: #173d35; font-weight: 800; }
+  .eyebrow { margin: 24px 0 8px; color: #677067; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  h1 { margin: 0 0 12px; font-size: 34px; line-height: 1.1; }
+  p { color: #5f6a63; line-height: 1.55; }
+  a { display: block; margin-top: 24px; padding: 15px 18px; border-radius: 14px; background: #173d35; color: white; font-weight: 750; text-align: center; text-decoration: none; }
+  .fallback { font-size: 13px; }
+</style>

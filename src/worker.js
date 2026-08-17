@@ -625,7 +625,9 @@ async function createSetuConsent(env, user, request, payload) {
   if (!mobile) return json({ error: "Enter a valid 10-digit Indian mobile number" }, 400);
   const existing = await env.DB.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED') ORDER BY updated_at DESC LIMIT 1").bind(user.id).first();
   if (existing) return json({ error: "You already have a current bank consent. Open it to continue, refresh, or revoke it.", existingId: existing.id }, 409);
-  const redirectUrl = new URL("/accounts?setu=returned", request.url).toString();
+  const redirectUrl = payload.platform === "ios"
+    ? new URL("/setu-return", request.url).toString()
+    : new URL("/accounts?setu=returned", request.url).toString();
   const consentRequest = buildConsentRequest({ mobile, redirectUrl });
   let result;
   try { result = await setuRequest(env, "/v2/consents", { method: "POST", body: JSON.stringify(consentRequest) }); }
@@ -640,6 +642,17 @@ async function createSetuConsent(env, user, request, payload) {
   await audit(env.DB, user.id, "aa.consent.created", "aa_consent", id, { provider: "setu", purposeCode: "102", status });
   const row = await env.DB.prepare("SELECT * FROM aa_consents WHERE id=?").bind(id).first();
   return json({ connection: publicConsent(row), consentUrl }, 201);
+}
+
+async function deleteUserAccount(env, user) {
+  const consents = await env.DB.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED')").bind(user.id).all();
+  if (consents.results.length && !setuConfig(env).configured) return json({ error: "Bank consent must be revoked before this account can be deleted. Setu is temporarily unavailable; try again later.", code: "CONSENT_REVOCATION_REQUIRED" }, 503);
+  for (const consent of consents.results) {
+    const response = await revokeSetuConsent(env, user, consent.id);
+    if (!response.ok) return response;
+  }
+  await env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
+  return json({ deleted: true });
 }
 
 async function refreshSetuConsent(env, user, id) {
@@ -797,13 +810,23 @@ async function handleApi(request, env, url) {
     if (!env.INTERNAL_SECRET || request.headers.get("authorization") !== `Bearer ${env.INTERNAL_SECRET}`) return json({ error: "Forbidden" }, 403);
     return json(await processReminders(env));
   }
-  if (["/api/mobile/sync", "/api/mobile/session", "/api/mobile/push-token", "/api/mobile/transactions"].includes(url.pathname)) {
+  const mobileBankConnectionMatch = url.pathname.match(/^\/api\/mobile\/bank-connections\/([^/]+)\/(refresh|revoke)$/);
+  const isMobileRoute = ["/api/mobile/sync", "/api/mobile/session", "/api/mobile/push-token", "/api/mobile/transactions", "/api/mobile/account", "/api/mobile/bank-connections", "/api/mobile/bank-connections/setu/consents", "/api/mobile/money-plan"].includes(url.pathname) || mobileBankConnectionMatch;
+  if (isMobileRoute) {
     const mobileUser = await getMobileUser(request, env.DB); if (!mobileUser) return json({ error: "Mobile authentication required" }, 401);
     if (request.method === "POST" && url.pathname === "/api/mobile/sync") return syncMobile(env.DB, mobileUser, await request.json());
     if (request.method === "POST" && url.pathname === "/api/mobile/push-token") return savePushDevice(env.DB, mobileUser, await request.json());
     if (request.method === "DELETE" && url.pathname === "/api/mobile/push-token") return deletePushDevice(env.DB, mobileUser, await request.json().catch(() => ({})));
     if (request.method === "DELETE" && url.pathname === "/api/mobile/session") { await env.DB.batch([env.DB.prepare("DELETE FROM push_devices WHERE session_id=?").bind(mobileUser.sessionId), env.DB.prepare("UPDATE mobile_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").bind(mobileUser.sessionId)]); return json({ disconnected: true }); }
     if (request.method === "DELETE" && url.pathname === "/api/mobile/transactions") return resetFinancialData(env.DB, mobileUser);
+    if (request.method === "DELETE" && url.pathname === "/api/mobile/account") return deleteUserAccount(env, mobileUser);
+    if (request.method === "GET" && url.pathname === "/api/mobile/bank-connections") return json({ configured: setuConfig(env).configured, connections: await listBankConnections(env.DB, mobileUser.id) });
+    if (request.method === "POST" && url.pathname === "/api/mobile/bank-connections/setu/consents") return createSetuConsent(env, mobileUser, request, { ...(await request.json()), platform: "ios" });
+    if (request.method === "POST" && mobileBankConnectionMatch?.[2] === "refresh") return refreshSetuConsent(env, mobileUser, mobileBankConnectionMatch[1]);
+    if (request.method === "POST" && mobileBankConnectionMatch?.[2] === "revoke") return revokeSetuConsent(env, mobileUser, mobileBankConnectionMatch[1]);
+    if (request.method === "GET" && url.pathname === "/api/mobile/money-plan") return json({ plan: await getMoneyPlan(env.DB, mobileUser, url.searchParams.get("month")) });
+    if (request.method === "PUT" && url.pathname === "/api/mobile/money-plan") return saveMoneyPlan(env.DB, mobileUser, await request.json());
+    return json({ error: "Not found" }, 404);
   }
   const user = getUser(request);
   if (!user) return json({ error: "Authentication required" }, 401);
@@ -833,11 +856,7 @@ async function handleApi(request, env, url) {
     return json({ exportedAt: new Date().toISOString(), user: { email: user.email }, transactions: data.results, loans:await listLoans(env.DB,user.id), paymentAccounts:await listPaymentAccounts(env.DB,user.id), moneyPlans: plans.results, bankConnections: await listBankConnections(env.DB, user.id) });
   }
   if (request.method === "DELETE" && url.pathname === "/api/account") {
-    const consents = await env.DB.prepare("SELECT id FROM aa_consents WHERE user_id=? AND status IN ('ACTIVE','PENDING','INITIATED','PAUSED')").bind(user.id).all();
-    if (consents.results.length && !setuConfig(env).configured) return json({ error: "Bank consent must be revoked before this account can be deleted. Setu is temporarily unavailable; try again later.", code: "CONSENT_REVOCATION_REQUIRED" }, 503);
-    for (const consent of consents.results) { const response = await revokeSetuConsent(env, user, consent.id); if (!response.ok) return response; }
-    await env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id).run();
-    return json({ deleted: true });
+    return deleteUserAccount(env, user);
   }
   const transactionMatch = url.pathname.match(/^\/api\/transactions\/([^/]+)$/);
   const accountMatch = url.pathname.match(/^\/api\/payment-accounts\/([^/]+)$/);
